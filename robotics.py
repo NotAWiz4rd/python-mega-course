@@ -1,12 +1,13 @@
-from collections import deque
+from collections import defaultdict
+import heapq
 
 import matplotlib.pyplot as plt
 import numpy as np
 
-DIRECTIONS = [(0, 1), (0, -1), (1, 0), (-1, 0)]
+DIRECTIONS = [(0, 1), (0, -1), (1, 0), (-1, 0), (1, 1), (-1, -1), (1, -1), (-1, 1)]
 
 
-def get_neighbours(map, i, j) -> list[tuple]:
+def get_neighbours(map, i, j) -> list[tuple[int, tuple[int, int]]]:
     cutoff_prob = 0.3
 
     neighbours = []
@@ -14,21 +15,32 @@ def get_neighbours(map, i, j) -> list[tuple]:
     for direction in DIRECTIONS:
         current_i = i + direction[0]
         current_j = j + direction[1]
-        if 0 <= current_i < len(map) and 0 <= current_j < len(
-                map[0]):  # check that we're still within map boundaries
+        if 0 <= current_i < len(map) and 0 <= current_j < len(map[0]):  # check that we're still within map boundaries
             if map[current_i][current_j] <= cutoff_prob:
-                neighbours.append((current_i, current_j))
+                move_cost = 1
+                if abs(current_i) == abs(current_j):  # diagonal, has different move cost
+                    move_cost = np.sqrt(2)
+                neighbours.append((move_cost, (current_i, current_j)))
 
     return neighbours
 
 
 def get_shortest_path(map, start, goal):
-    queue = deque([start])
-    visited_nodes = {start}
+    distances = defaultdict(lambda: float("inf"))
+    distances[start] = 0
     parent = {start: None}
+    visited = set()
 
-    while queue:
-        current_node = queue.popleft()
+    # Priority queue: (distance, node)
+    pq = [(0, start)]
+
+    while pq:
+        current_dist, current_node = heapq.heappop(pq)
+
+        if current_node in visited:
+            continue
+
+        visited.add(current_node)
         refresh_map(current_node)
 
         if current_node == goal:
@@ -40,11 +52,13 @@ def get_shortest_path(map, start, goal):
             return path[::-1]  # Reverse to get start-to-goal order
 
         neighbours = get_neighbours(map, current_node[0], current_node[1])
-        for neighbour in neighbours:
-            if neighbour not in visited_nodes:
-                visited_nodes.add(neighbour)
-                parent[neighbour] = current_node
-                queue.append(neighbour)
+        for move_cost, neighbour in neighbours:
+            if neighbour not in visited:
+                new_dist = current_dist + move_cost
+                if new_dist < distances[neighbour]:
+                    distances[neighbour] = new_dist
+                    parent[neighbour] = current_node
+                    heapq.heappush(pq, (new_dist, neighbour))
 
     return []  # No path found
 
