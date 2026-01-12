@@ -25,23 +25,29 @@ def get_neighbours(map, i, j) -> list[tuple[int, tuple[int, int]]]:
     return neighbours
 
 
+def heuristic(node, goal):
+    """Euclidean distance - admissible heuristic (never overestimates)."""
+    return np.sqrt((goal[0] - node[0])**2 + (goal[1] - node[1])**2)
+
+
 def get_shortest_path(map, start, goal):
-    distances = defaultdict(lambda: float("inf"))
+    distances = defaultdict(lambda: float("inf"))  # g(n): actual cost from start
     distances[start] = 0
     parent = {start: None}
     visited = set()
 
-    # Priority queue: (distance, node)
-    pq = [(0, start)]
+    # Priority queue: (f, node) where f = g + h
+    pq = [(heuristic(start, goal), start)]
+    plot_node(start, 'green')  # queued
 
     while pq:
-        current_dist, current_node = heapq.heappop(pq)
+        _, current_node = heapq.heappop(pq)
 
         if current_node in visited:
             continue
 
         visited.add(current_node)
-        refresh_map(current_node)
+        plot_node(current_node, 'yellow')  # explored
 
         if current_node == goal:
             # Reconstruct path from goal to start
@@ -54,19 +60,21 @@ def get_shortest_path(map, start, goal):
         neighbours = get_neighbours(map, current_node[0], current_node[1])
         for move_cost, neighbour in neighbours:
             if neighbour not in visited:
-                new_dist = current_dist + move_cost
-                if new_dist < distances[neighbour]:
-                    distances[neighbour] = new_dist
+                new_g = distances[current_node] + move_cost
+                if new_g < distances[neighbour]:
+                    distances[neighbour] = new_g
                     parent[neighbour] = current_node
-                    heapq.heappush(pq, (new_dist, neighbour))
+                    f = new_g + heuristic(neighbour, goal)
+                    heapq.heappush(pq, (f, neighbour))
+                    plot_node(neighbour, 'green')  # queued
 
     return []  # No path found
 
 
-def refresh_map(vertex):
-    plt.plot(vertex[1], vertex[0], 'g.', markersize=3)
+def plot_node(vertex, color, marker='o', size=3):
+    plt.plot(vertex[1], vertex[0], color=color, marker=marker, markersize=size)
     plt.draw()
-    plt.pause(0.01)
+    plt.pause(0.001)
 
 
 def main():
