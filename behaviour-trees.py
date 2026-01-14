@@ -30,6 +30,20 @@ class Action(Node):
         return True
 
 
+class Repeat(Node):
+    def __init__(self, child: Node, name: str = None, times: int = 1):
+        super().__init__([child], name)
+        self.times = times
+
+    def execute(self) -> bool:
+        print("Executing repeat:", self.name)
+        for i in range(self.times):
+            if not self.children[0].execute():
+                return False
+
+        return True
+
+
 class SenseIfPegAlreadyInGripper(Action):
     def execute(self) -> bool:
         print("Gripper not in hand!")
@@ -60,6 +74,8 @@ def main():
                                MoveGripperToPeg(), CloseGripperAroundPeg()
                                ], "Get Peg")
                      ], "Pick square peg")
+
+    tree = Repeat(Repeat(Action(name="hello world"), times=3), times=2)
 
     # Execute the behavior tree
     print(tree.execute())
