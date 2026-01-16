@@ -213,9 +213,10 @@ class Mapping(py_trees.behaviour.Behaviour):
             new_status: The status the behaviour is transitioning to
         """
         if self.has_run:
-            # Convolve with kernel to expand obstacles by robot radius
+            # Transpose map from [x, y] indexing to [y, x] (standard row, col convention)
+            # Then convolve with kernel to expand obstacles by robot radius
             # This creates configuration space where a point robot can navigate
-            cspace = signal.convolve2d(self.map, np.ones((26, 26)), mode='same')
+            cspace = signal.convolve2d(self.map.T, np.ones((28, 28)), mode='same')
 
             # Save configuration space for path planning
             np.save('cspace', cspace)

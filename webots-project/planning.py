@@ -15,18 +15,16 @@ def world2map(x_world, y_world):
     """
     Convert world coordinates to map/pixel coordinates.
 
-    The world coordinate system maps to a 200x300 pixel grid:
-    - World (-2.15, 1.66) -> Map (0, 0)
-    - World (2.15, -3.92) -> Map (199, 299)
+    The cspace is stored in [y, x] (row, col) convention with shape (300, 200).
+    Returns [y_map, x_map] to match this indexing.
 
     Args:
         x_world: X coordinate in world frame
         y_world: Y coordinate in world frame
 
     Returns:
-        List [x_map, y_map] with clamped pixel coordinates
+        List [y_map, x_map] with clamped pixel coordinates for [row, col] indexing
     """
-    # Map dimensions: 200 (x) x 300 (y)
     x_map = int((x_world + 2.15) / 4.3 * 199)
     y_map = int(-(y_world - 1.66) / 5.58 * 299)
 
@@ -34,18 +32,19 @@ def world2map(x_world, y_world):
     x_map = max(0, min(199, x_map))
     y_map = max(0, min(299, y_map))
 
-    return [x_map, y_map]
+    # Return [y, x] for standard row, col indexing
+    return [y_map, x_map]
 
 
-def map2world(x_map, y_map):
+def map2world(y_map, x_map):
     """
     Convert map/pixel coordinates back to world coordinates.
 
-    Inverse of world2map function.
+    Inverse of world2map function. Takes [y_map, x_map] to match cspace indexing.
 
     Args:
-        x_map: X coordinate in map frame (0-199)
-        y_map: Y coordinate in map frame (0-299)
+        y_map: Row coordinate in map frame (0-299)
+        x_map: Column coordinate in map frame (0-199)
 
     Returns:
         Tuple (x_world, y_world) in world coordinates
