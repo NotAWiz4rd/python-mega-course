@@ -44,6 +44,11 @@ class Repeat(Node):
         return True
 
 
+class Parallel(Node):
+    def execute(self):
+        results = [child.execute() for child in self.children]
+        return all(results)
+
 class SenseIfPegAlreadyInGripper(Action):
     def execute(self) -> bool:
         print("Gripper not in hand!")
