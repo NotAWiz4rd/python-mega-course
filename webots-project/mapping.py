@@ -97,6 +97,10 @@ class Mapping(py_trees.behaviour.Behaviour):
         self.lidar.enable(self.timestep)
         self.lidar.enablePointCloud()
 
+        # Get LIDAR properties for angle computation
+        self.lidar_resolution = self.lidar.getHorizontalResolution()
+        self.lidar_fov = self.lidar.getFov()
+
         # Display for real-time map visualization
         self.display = self.robot.getDevice('display')
 
@@ -105,7 +109,6 @@ class Mapping(py_trees.behaviour.Behaviour):
         Initialize the mapping process.
 
         Creates empty occupancy map and precomputes LIDAR beam angles.
-        The angles are trimmed to remove edge beams that may have noise.
         """
         # Reset run flag for this new mapping session
         self.has_run = False
@@ -113,10 +116,12 @@ class Mapping(py_trees.behaviour.Behaviour):
         # Initialize empty occupancy grid (200x300 to match world dimensions)
         self.map = np.zeros((200, 300))
 
-        # Precompute LIDAR beam angles (trimming noisy edge beams)
-        # Hokuyo URG-04LX-UG01 has 667 readings over ~4.19 radian FOV
-        self.angles = np.linspace(4.19 / 2, -4.19 / 2, 667)
-        self.angles = self.angles[80:len(self.angles) - 80]  # Trim to 507 readings
+        # Precompute LIDAR beam angles using actual device properties
+        self.angles = np.linspace(
+            self.lidar_fov / 2,
+            -self.lidar_fov / 2,
+            self.lidar_resolution
+        )
 
         # Re-enable LIDAR in case it was disabled
         self.lidar.enable(self.timestep)
@@ -136,38 +141,48 @@ class Mapping(py_trees.behaviour.Behaviour):
         self.has_run = True
 
         # Get current robot position from GPS
-        x_world = self.gps.getValues()[0]
-        y_world = self.gps.getValues()[1]
+        # Note: GPS/LIDAR are co-located at the front of the robot
+        x_gps = self.gps.getValues()[0]
+        y_gps = self.gps.getValues()[1]
 
         # Get robot heading from compass (atan2 gives angle in radians)
         theta = np.arctan2(self.compass.getValues()[0], self.compass.getValues()[1])
 
         # Draw robot position on display in red
-        px, py = world2map(x_world, y_world)
+        px, py = world2map(x_gps, y_gps)
         self.display.setColor(0xFF0000)
         self.display.drawPixel(px, py)
 
-        # Build homogeneous transformation matrix from robot frame to world frame
-        # This allows us to transform LIDAR points from robot-relative to world coordinates
-        w_T_r = np.array([[np.cos(theta), -np.sin(theta), x_world],
-                         [np.sin(theta), np.cos(theta), y_world],
-                         [0, 0, 1]])
-
-        # Get LIDAR range readings and trim edge beams
+        # Get LIDAR range readings
         ranges = np.array(self.lidar.getRangeImage())
-        ranges = ranges[80:len(ranges) - 80]
 
-        # Replace infinite readings (no obstacle) with large value
+        # Ignore noisy edge beams by setting them to infinity
+        ranges[:80] = np.inf
+        ranges[-80:] = np.inf
+
+        # Replace infinite readings (no obstacle) with large value so they don't show on map
         ranges[ranges == np.inf] = 100
 
-        # Convert polar LIDAR readings to Cartesian coordinates in robot frame
-        # 0.202 is the LIDAR offset from robot center
-        X_i = np.array([ranges * np.cos(self.angles) + 0.202,
-                        ranges * np.sin(self.angles),
-                        np.ones(len(ranges))])
+        # LIDAR is at GPS position (front of robot), so use GPS coords directly
+        x_lidar, y_lidar = x_gps, y_gps
 
-        # Transform LIDAR points from robot frame to world frame
-        D = w_T_r @ X_i
+        # Build homogeneous transformation matrix from LIDAR frame to world frame
+        lidar_to_world = np.array([
+            [np.cos(theta), -np.sin(theta), x_lidar],
+            [np.sin(theta), np.cos(theta), y_lidar],
+            [0, 0, 1]
+        ])
+
+        # Convert polar LIDAR readings to Cartesian coordinates in LIDAR frame
+        # No offset needed since we're using LIDAR position directly
+        X_i = np.array([
+            ranges * np.cos(self.angles),
+            ranges * np.sin(self.angles),
+            np.ones(len(self.angles))
+        ])
+
+        # Transform LIDAR points from LIDAR frame to world frame
+        D = lidar_to_world @ X_i
 
         # Update occupancy grid for each detected point
         for d in D.T:
@@ -198,7 +213,7 @@ class Mapping(py_trees.behaviour.Behaviour):
             new_status: The status the behaviour is transitioning to
         """
         if self.has_run:
-            # Convolve with 26x26 kernel to expand obstacles by robot radius
+            # Convolve with kernel to expand obstacles by robot radius
             # This creates configuration space where a point robot can navigate
             cspace = signal.convolve2d(self.map, np.ones((26, 26)), mode='same')
 
