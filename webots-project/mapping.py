@@ -16,28 +16,28 @@ def world2map(x_world, y_world):
     """
     Convert world coordinates to map/pixel coordinates.
 
-    The world coordinate system maps to a 300x300 pixel grid:
+    The world coordinate system maps to a 200x300 pixel grid:
     - World (-2.15, 1.66) -> Map (0, 0)     (top-left)
-    - World (0.305, 0.25) -> Map (149, 149) (center)
-    - World (2.15, -3.92) -> Map (299, 299) (bottom-right)
+    - World (2.15, -3.92) -> Map (199, 299) (bottom-right)
 
     Args:
         x_world: X coordinate in world frame
         y_world: Y coordinate in world frame
 
     Returns:
-        List [x_map, y_map] with clamped pixel coordinates (0-299)
+        List [x_map, y_map] with clamped pixel coordinates
     """
-    x_map = int((x_world + 2.15) / 4.3 * 299)
+    # Map dimensions: 200 (x) x 300 (y)
+    x_map = int((x_world + 2.15) / 4.3 * 199)
     y_map = int(-(y_world - 1.66) / 5.58 * 299)
 
-    # Clamp x coordinate to valid map range
+    # Clamp x coordinate to valid map range (0-199)
     if x_map < 0:
         x_map = 0
-    elif x_map > 299:
-        x_map = 299
+    elif x_map > 199:
+        x_map = 199
 
-    # Clamp y coordinate to valid map range
+    # Clamp y coordinate to valid map range (0-299)
     if y_map < 0:
         y_map = 0
     elif y_map > 299:
@@ -107,6 +107,9 @@ class Mapping(py_trees.behaviour.Behaviour):
         Creates empty occupancy map and precomputes LIDAR beam angles.
         The angles are trimmed to remove edge beams that may have noise.
         """
+        # Reset run flag for this new mapping session
+        self.has_run = False
+
         # Initialize empty occupancy grid (200x300 to match world dimensions)
         self.map = np.zeros((200, 300))
 
@@ -114,6 +117,11 @@ class Mapping(py_trees.behaviour.Behaviour):
         # Hokuyo URG-04LX-UG01 has 667 readings over ~4.19 radian FOV
         self.angles = np.linspace(4.19 / 2, -4.19 / 2, 667)
         self.angles = self.angles[80:len(self.angles) - 80]  # Trim to 507 readings
+
+        # Re-enable LIDAR in case it was disabled
+        self.lidar.enable(self.timestep)
+
+        self.logger.debug("Mapping initialised")
 
     def update(self):
         """
@@ -194,18 +202,23 @@ class Mapping(py_trees.behaviour.Behaviour):
             # This creates configuration space where a point robot can navigate
             cspace = signal.convolve2d(self.map, np.ones((26, 26)), mode='same')
 
-            # Display the raw configuration space
-            plt.figure(0)
-            plt.imshow(cspace)
-            plt.title('Configuration Space (raw)')
-            plt.show()
-
-            # Display thresholded configuration space (obstacles in white)
-            plt.figure(1)
-            plt.imshow(cspace > 0.9)
-            plt.title('Configuration Space (thresholded)')
-            plt.show()
-
             # Save configuration space for path planning
             np.save('cspace', cspace)
             print("Mapping: Configuration space saved to 'cspace.npy'")
+
+            # Display the configuration space (non-blocking)
+            plt.figure(0)
+            plt.imshow(cspace)
+            plt.title('Configuration Space (raw)')
+            plt.savefig('cspace_raw.png')  # Save to file instead of blocking
+
+            plt.figure(1)
+            plt.imshow(cspace > 0.9)
+            plt.title('Configuration Space (thresholded)')
+            plt.savefig('cspace_thresholded.png')  # Save to file instead of blocking
+
+            # Close figures to free memory
+            plt.close('all')
+
+            # Reset flag so we don't save again if terminate is called multiple times
+            self.has_run = False
