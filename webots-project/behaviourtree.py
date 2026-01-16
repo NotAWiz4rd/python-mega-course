@@ -158,3 +158,8 @@ tree.setup_with_descendants()
 while robot.step(timestep) != -1:
     # Tick the behaviour tree once per simulation step
     tree.tick_once()
+
+    # Stop when the tree completes successfully
+    if tree.status == py_trees.common.Status.SUCCESS:
+        print("Behaviour tree completed successfully!")
+        break
