@@ -9,6 +9,127 @@ import py_trees
 from py_trees.blackboard import Blackboard
 import numpy as np
 
+# Heading tolerance for TurnToHeading (radians, ~2 degrees)
+HEADING_TOLERANCE = 0.035
+
+
+class TurnToHeading(py_trees.behaviour.Behaviour):
+    """
+    Behaviour tree node for turning the robot to face a specific location.
+
+    Rotates the robot in place using differential drive until it faces
+    the target (x, y) location. Computes the required heading automatically
+    based on robot's current position.
+
+    Attributes:
+        target_location: (x, y) world coordinates to face towards
+        turn_speed: Base angular velocity for turning
+    """
+
+    def __init__(self, name: str, blackboard: Blackboard, target_location: tuple,
+                 turn_speed: float = 1.5):
+        """
+        Initialize the TurnToHeading behaviour.
+
+        Args:
+            name: Name of this behaviour node
+            blackboard: Shared blackboard for inter-behaviour communication
+            target_location: (x, y) world coordinates to face towards
+            turn_speed: Base turning speed (rad/s), default 1.5
+        """
+        super(TurnToHeading, self).__init__(name)
+        self.blackboard = blackboard
+        self.target_location = target_location
+        self.turn_speed = turn_speed
+        self.robot = blackboard.read('robot')
+        self.target_heading = None  # Computed in initialise()
+
+    def setup(self):
+        """Set up sensors and actuators needed for turning."""
+        self.timestep = int(self.robot.getBasicTimeStep())
+
+        # GPS for position (to compute heading to target)
+        self.gps = self.robot.getDevice('gps')
+        self.gps.enable(self.timestep)
+
+        # Compass for heading feedback
+        self.compass = self.robot.getDevice('compass')
+        self.compass.enable(self.timestep)
+
+        # Differential drive motors
+        self.left_motor = self.robot.getDevice('wheel_left_joint')
+        self.right_motor = self.robot.getDevice('wheel_right_joint')
+
+        # Set motors to velocity control mode
+        self.left_motor.setPosition(float('inf'))
+        self.right_motor.setPosition(float('inf'))
+
+        self.logger.debug("TurnToHeading setup complete")
+
+    def initialise(self):
+        """Initialize for turning - compute heading and stop any existing motion."""
+        self.left_motor.setVelocity(0.0)
+        self.right_motor.setVelocity(0.0)
+
+        # Get current robot position
+        robot_x = self.gps.getValues()[0]
+        robot_y = self.gps.getValues()[1]
+
+        # Compute heading to target location
+        dx = self.target_location[0] - robot_x
+        dy = self.target_location[1] - robot_y
+        self.target_heading = np.arctan2(dy, dx)
+
+        print(f"TurnToHeading: At ({robot_x:.2f}, {robot_y:.2f}), "
+              f"turning to face ({self.target_location[0]:.2f}, {self.target_location[1]:.2f}) "
+              f"= {np.degrees(self.target_heading):.1f}°")
+
+    def update(self):
+        """
+        Execute one control step of heading alignment.
+
+        Uses proportional control to rotate in place until the target
+        heading is achieved.
+
+        Returns:
+            SUCCESS when heading achieved, RUNNING otherwise
+        """
+        # Get robot heading from compass
+        current_heading = np.arctan2(self.compass.getValues()[0],
+                                      self.compass.getValues()[1])
+
+        # Calculate angle error
+        angle_error = self.target_heading - current_heading
+
+        # Normalize angle to [-pi, pi]
+        if angle_error > np.pi:
+            angle_error = angle_error - 2 * np.pi
+        elif angle_error < -np.pi:
+            angle_error = angle_error + 2 * np.pi
+
+        # Check if we've reached target heading
+        if abs(angle_error) < HEADING_TOLERANCE:
+            self.left_motor.setVelocity(0.0)
+            self.right_motor.setVelocity(0.0)
+            print(f"TurnToHeading: Heading achieved at {np.degrees(current_heading):.1f}°")
+            return py_trees.common.Status.SUCCESS
+
+        # Proportional control for turning speed
+        # Scale turn speed based on error (faster when far, slower when close)
+        p_gain = 2.0
+        turn_velocity = np.clip(p_gain * angle_error, -self.turn_speed, self.turn_speed)
+
+        # Rotate in place: opposite wheel velocities
+        self.left_motor.setVelocity(-turn_velocity)
+        self.right_motor.setVelocity(turn_velocity)
+
+        return py_trees.common.Status.RUNNING
+
+    def terminate(self, new_status):
+        """Stop motors when behaviour ends."""
+        self.left_motor.setVelocity(0.0)
+        self.right_motor.setVelocity(0.0)
+
 
 class Navigation(py_trees.behaviour.Behaviour):
     """

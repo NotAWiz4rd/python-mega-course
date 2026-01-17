@@ -3,7 +3,7 @@ from controller import Robot, Supervisor
 from py_trees.composites import Sequence
 
 from behaviourtree import Blackboard
-from navigation import Navigation
+from navigation import Navigation, TurnToHeading
 from planning import Planning
 from jointcontrol import (
     PositionJoints, GripWithForce, ReleaseGripper,
@@ -31,7 +31,7 @@ right_motor = robot.getDevice('wheel_right_joint')
 
 # safe positions
 robot_joints = {
-    'torso_lift_joint': 0.35,
+    'torso_lift_joint': 0.15,
     'arm_1_joint': 0.71,
     'arm_2_joint': 1.02,
     'arm_3_joint': -2.815,
@@ -73,26 +73,34 @@ for joint_key in robot_joints.keys():
 blackboard = Blackboard()
 blackboard.write('robot', robot)
 
+# Location of the glass on the counter (x, y world coordinates)
+COUNTER_LOCATION = (0.91, -0.25)
+GLASS_LOCATION = (1.71, -0.3)
+
 tree = Sequence("Main", memory=True, children=[
     # Phase 1: Navigate to counter
-    Planning("Compute path to kitchen counter", blackboard, (1, -0.35)),
+    Planning("Compute path to kitchen counter", blackboard, COUNTER_LOCATION),
     Navigation("Move to kitchen counter", blackboard),
 
-    # Phase 2: Position arm and open gripper for grasping
+    # Phase 2: Turn to face the glass precisely
+    TurnToHeading("Face the glass", blackboard, GLASS_LOCATION),
+
+    # Phase 3: Position arm and open gripper for grasping
     PositionJoints("Open gripper", HAND_OPEN, blackboard),
     PositionJoints("Approach position", ARM_APPROACH_COUNTER, blackboard),
     PositionJoints("Lower to grasp position", ARM_GRASP_POSITION, blackboard),
 
-    # Phase 3: Grip the glass using force feedback
+    # Phase 4: Grip the glass using force feedback
     GripWithForce("Grip glass with force control", blackboard),
 
-    # Phase 4: Lift and retract arm with glass
+    # Phase 5: Lift and retract arm with glass
     PositionJoints("Lift with glass", ARM_APPROACH_COUNTER, blackboard),
     PositionJoints("Retract arm for carrying", ARM_CARRY, blackboard),
 
     # TODO: Future phases for transport and placement
-    # Planning("Compute path to table", blackboard, (target_x, target_y)),
+    # Planning("Compute path to table", blackboard, (table_x, table_y)),
     # Navigation("Move to table", blackboard),
+    # TurnToHeading("Face the table", blackboard, (table_center_x, table_center_y)),
     # PositionJoints("Extend arm to place", ARM_PLACE_DOWN, blackboard),
     # ReleaseGripper("Release glass", blackboard),
     # PositionJoints("Retract arm", ARM_CARRY, blackboard),
@@ -109,3 +117,5 @@ while robot.step(timestep) != -1:
     if tree.status == py_trees.common.Status.SUCCESS:
         print("Behaviour tree completed successfully!")
         break
+    elif tree.status == py_trees.common.Status.FAILURE:
+        tree.setup_with_descendants()

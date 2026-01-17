@@ -5,20 +5,20 @@ from behaviourtree import Blackboard
 POSITION_TOLERANCE = 0.01  # radians (or meters for prismatic joints)
 
 # Force threshold for gripping (Newtons) - adjust based on glass fragility
-GRIP_FORCE_THRESHOLD = -10.0
+GRIP_FORCE_THRESHOLD = 15.0
 # How much to close gripper per update step (meters)
 GRIP_INCREMENT = 0.001
 # Minimum finger position (fully closed)
-GRIP_MIN_POSITION = 0.0
+GRIP_MIN_POSITION = 0.01
 # Maximum finger position (fully open)
 GRIP_MAX_POSITION = 0.045
 
 ARM_STRAIGHT_FORWARD = {
-    'torso_lift_joint': 0.35,
-    'arm_1_joint': 1.5,
-    'arm_2_joint': 0,
-    'arm_3_joint': -2.815,
-    'arm_4_joint': 1.011,
+    'torso_lift_joint': 0.3,
+    'arm_1_joint': 1.2,
+    'arm_2_joint': 0.1,
+    'arm_3_joint': -2.0,
+    'arm_4_joint': 0.5,
     'arm_5_joint': 0,
     'arm_6_joint': 0,
     'arm_7_joint': 0,
@@ -29,33 +29,33 @@ ARM_STRAIGHT_FORWARD = {
 
 # Arm position for approaching a glass on the counter (extended, slightly above)
 ARM_APPROACH_COUNTER = {
-    'torso_lift_joint': 0.35,
-    'arm_1_joint': 1.5,
-    'arm_2_joint': 0.0,
+    'torso_lift_joint': 0.3,
+    'arm_1_joint': 1.2,
+    'arm_2_joint': -0.2,
     'arm_3_joint': -2.0,
-    'arm_4_joint': 1.5,
+    'arm_4_joint': 0.45,
     'arm_5_joint': 0,
-    'arm_6_joint': 0.5,
-    'arm_7_joint': 0,
+    'arm_6_joint': 0,
+    'arm_7_joint': -0.4,
     'head_1_joint': 0,
     'head_2_joint': -0.3,  # Look slightly down at the counter
 }
 
 # Arm position lowered to grasp the glass
 ARM_GRASP_POSITION = {
-    'torso_lift_joint': 0.25,
-    'arm_1_joint': 1.5,
-    'arm_2_joint': 0.0,
+    'torso_lift_joint': 0.3,
+    'arm_1_joint': 1.2,
+    'arm_2_joint': -0.46,
     'arm_3_joint': -2.0,
-    'arm_4_joint': 1.8,
+    'arm_4_joint': 0.45,
     'arm_5_joint': 0,
-    'arm_6_joint': 0.5,
-    'arm_7_joint': 0,
+    'arm_6_joint': 0,
+    'arm_7_joint': -0.4,
 }
 
 # Arm position for carrying an object (retracted, safe)
 ARM_CARRY = {
-    'torso_lift_joint': 0.35,
+    'torso_lift_joint': 0.3,
     'arm_1_joint': 0.2,
     'arm_2_joint': -1.3,
     'arm_3_joint': -2.0,
@@ -136,9 +136,10 @@ class PositionJoints(py_trees.behaviour.Behaviour):
                 return py_trees.common.Status.RUNNING
 
         if all_close:
-            print("All joints reached target positions.")
+            print("All joints reached target positions." , self.name)
             return py_trees.common.Status.SUCCESS
 
+        print("Positioning failed", self.name)
         return py_trees.common.Status.FAILURE
 
 
@@ -195,7 +196,7 @@ class GripWithForce(py_trees.behaviour.Behaviour):
         right_force = abs(self.right_motor.getForceFeedback())
 
         # Check if we've achieved sufficient grip on both fingers
-        if left_force <= self.force_threshold and right_force <= self.force_threshold:
+        if left_force >= self.force_threshold and right_force >= self.force_threshold:
             if not self.grip_achieved:
                 print(f"GripWithForce: Grip achieved! L={left_force:.2f}N, R={right_force:.2f}N")
                 self.grip_achieved = True
@@ -265,7 +266,7 @@ class ReleaseGripper(py_trees.behaviour.Behaviour):
 
         # Check if both fingers are near open position
         if (abs(left_pos - GRIP_MAX_POSITION) < POSITION_TOLERANCE and
-            abs(right_pos - GRIP_MAX_POSITION) < POSITION_TOLERANCE):
+                abs(right_pos - GRIP_MAX_POSITION) < POSITION_TOLERANCE):
             print("ReleaseGripper: Gripper fully open")
             return py_trees.common.Status.SUCCESS
 
