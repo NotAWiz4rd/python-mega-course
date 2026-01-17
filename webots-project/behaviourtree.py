@@ -23,25 +23,6 @@ from planning import Planning
 from controller import Robot, Supervisor
 
 
-# Create the Robot instance (Supervisor allows access to simulation features)
-robot = Supervisor()
-
-# Get simulation timestep
-timestep = int(robot.getBasicTimeStep())
-
-# Predefined waypoints for the mapping phase (navigate around the table)
-waypoints = [
-    (0.614, -0.19),
-    (0.77, -0.94),
-    (0.37, -3.04),
-    (-1.14, -3.39),
-    (-1.53, -3.39),
-    (-1.8, -1.46),
-    (-1.44, 0.38),
-    (0, 0)
-]
-
-
 class DoesMapExist(py_trees.behaviour.Behaviour):
     """
     Condition behaviour that checks if the configuration space map exists.
@@ -108,58 +89,3 @@ class Blackboard:
             The stored value, or None if key doesn't exist
         """
         return self.data.get(key)
-
-
-# Create shared blackboard and store robot reference
-blackboard = Blackboard()
-blackboard.write('robot', robot)
-
-# Store mapping waypoints (forward and reverse for complete coverage)
-blackboard.write('waypoints', np.concatenate((waypoints, np.flip(waypoints, 0)), axis=0))
-
-# Build the behaviour tree structure matching the workflow diagram:
-#
-# Sequence "Main"
-# ├── Selector "Does map exist?"
-# │   ├── DoesMapExist "Test for Map"
-# │   └── Parallel "Mapping" (SuccessOnOne)
-# │       ├── Mapping "Map the environment"
-# │       └── Navigation "Move around the table"
-# ├── Planning "Compute path to lower left corner"
-# ├── Navigation "Move to lower left corner"
-# ├── Planning "Compute path to sink"
-# └── Navigation "Move to sink"
-
-tree = Sequence("Main", memory=True, children=[
-    # First, check if map exists or create one
-    Selector("Does map exist?", memory=True, children=[
-        DoesMapExist("Test for Map"),
-        Parallel(
-            "Mapping",
-            policy=py_trees.common.ParallelPolicy.SuccessOnOne(),
-            children=[
-                Mapping("Map the environment", blackboard),
-                Navigation("Move around the table", blackboard)
-            ]
-        )
-    ]),
-    # Plan and execute path to lower left corner
-    Planning("Compute path to lower left corner", blackboard, (-1.46, -3.12)),
-    Navigation("Move to lower left corner", blackboard),
-    # Plan and execute path to sink
-    Planning("Compute path to sink", blackboard, (-0.88, 0.09)),
-    Navigation("Move to sink", blackboard)
-])
-
-# Set up all behaviours in the tree (calls setup() on each)
-tree.setup_with_descendants()
-
-# Main simulation loop
-while robot.step(timestep) != -1:
-    # Tick the behaviour tree once per simulation step
-    tree.tick_once()
-
-    # Stop when the tree completes successfully
-    if tree.status == py_trees.common.Status.SUCCESS:
-        print("Behaviour tree completed successfully!")
-        break
