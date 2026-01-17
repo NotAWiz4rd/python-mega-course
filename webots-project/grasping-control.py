@@ -5,7 +5,11 @@ from py_trees.composites import Sequence
 from behaviourtree import Blackboard
 from navigation import Navigation
 from planning import Planning
-from jointcontrol import PositionJoints, ARM_STRAIGHT_FORWARD
+from jointcontrol import (
+    PositionJoints, GripWithForce, ReleaseGripper,
+    ARM_STRAIGHT_FORWARD, ARM_APPROACH_COUNTER, ARM_GRASP_POSITION,
+    ARM_CARRY, ARM_PLACE_DOWN, HAND_OPEN
+)
 
 # create the Robot instance.
 robot = Supervisor()
@@ -70,10 +74,28 @@ blackboard = Blackboard()
 blackboard.write('robot', robot)
 
 tree = Sequence("Main", memory=True, children=[
-    # Plan and execute path to lower left corner
-    Planning("Compute path to kitchen counter 1st jar", blackboard, (1, -0.35)),
-    Navigation("Move to kitchen counter 1st jar", blackboard),
-    PositionJoints("Straight forward arm", ARM_STRAIGHT_FORWARD, blackboard)
+    # Phase 1: Navigate to counter
+    Planning("Compute path to kitchen counter", blackboard, (1, -0.35)),
+    Navigation("Move to kitchen counter", blackboard),
+
+    # Phase 2: Position arm and open gripper for grasping
+    PositionJoints("Open gripper", HAND_OPEN, blackboard),
+    PositionJoints("Approach position", ARM_APPROACH_COUNTER, blackboard),
+    PositionJoints("Lower to grasp position", ARM_GRASP_POSITION, blackboard),
+
+    # Phase 3: Grip the glass using force feedback
+    GripWithForce("Grip glass with force control", blackboard),
+
+    # Phase 4: Lift and retract arm with glass
+    PositionJoints("Lift with glass", ARM_APPROACH_COUNTER, blackboard),
+    PositionJoints("Retract arm for carrying", ARM_CARRY, blackboard),
+
+    # TODO: Future phases for transport and placement
+    # Planning("Compute path to table", blackboard, (target_x, target_y)),
+    # Navigation("Move to table", blackboard),
+    # PositionJoints("Extend arm to place", ARM_PLACE_DOWN, blackboard),
+    # ReleaseGripper("Release glass", blackboard),
+    # PositionJoints("Retract arm", ARM_CARRY, blackboard),
 ])
 
 # Set up all behaviours in the tree (calls setup() on each)
