@@ -262,61 +262,6 @@ class RRT:
         return None
 
 
-def simplify_path(path, cspace, obstacle_threshold=0.9):
-    """
-    Simplify a path by removing unnecessary intermediate waypoints.
-
-    Uses a greedy approach to connect non-adjacent nodes when possible,
-    reducing the number of waypoints while maintaining collision-free path.
-
-    Args:
-        path: List of [x, y] positions
-        cspace: Configuration space for collision checking
-        obstacle_threshold: Threshold for obstacle detection
-
-    Returns:
-        Simplified list of [x, y] positions
-    """
-    if len(path) <= 2:
-        return path
-
-    simplified = [path[0]]
-    current_idx = 0
-
-    while current_idx < len(path) - 1:
-        # Try to skip as many intermediate nodes as possible
-        furthest_reachable = current_idx + 1
-
-        for check_idx in range(current_idx + 2, len(path)):
-            # Check if we can go directly from current to check_idx
-            from_point = np.array(path[current_idx])
-            to_point = np.array(path[check_idx])
-
-            # Interpolate and check collision
-            distance = np.linalg.norm(to_point - from_point)
-            num_checks = max(int(distance), 2)
-            collision_free = True
-
-            for i in range(num_checks + 1):
-                t = i / num_checks
-                point = from_point + t * (to_point - from_point)
-                x, y = int(point[0]), int(point[1])
-
-                if (x < 0 or x >= cspace.shape[0] or
-                    y < 0 or y >= cspace.shape[1] or
-                    cspace[x, y] > obstacle_threshold):
-                    collision_free = False
-                    break
-
-            if collision_free:
-                furthest_reachable = check_idx
-
-        current_idx = furthest_reachable
-        simplified.append(path[current_idx])
-
-    return simplified
-
-
 class Planning(py_trees.behaviour.Behaviour):
     """
     Behaviour tree node for path planning using RRT.
@@ -415,12 +360,8 @@ class Planning(py_trees.behaviour.Behaviour):
             self.logger.error("RRT failed to find a path!")
             return py_trees.common.Status.FAILURE
 
-        # Simplify the path to reduce unnecessary waypoints
-        simplified_path = simplify_path(path, cspace)
-        print(f"Planning: Path simplified from {len(path)} to {len(simplified_path)} waypoints")
-
         # Convert path from map coordinates back to world coordinates
-        waypoints_world = [map2world(p[0], p[1]) for p in simplified_path]
+        waypoints_world = [map2world(p[0], p[1]) for p in path]
 
         # Store waypoints in blackboard for Navigation to use
         self.blackboard.write('waypoints', waypoints_world)
