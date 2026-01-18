@@ -10,6 +10,16 @@ import numpy as np
 from behaviourtree import Blackboard
 
 
+# Default color definitions (RGB values from 0-1)
+DEFAULT_COLORS = {
+    'red1': (0.55, 0.06, 0.06),
+    'red2': (0.15, 0.06, 0.06),
+    'blue': (0.18, 0.21, 0.8),
+    'yellow': (0.96, 1.0, 0.0),
+    'green': (0.0, 0.98, 0.13),
+}
+
+
 class ScanForObjects(py_trees.behaviour.Behaviour):
     """
     Behaviour that uses camera recognition to scan for colored jars.
@@ -18,22 +28,29 @@ class ScanForObjects(py_trees.behaviour.Behaviour):
     Stores found objects on the blackboard for later navigation.
     """
 
-    # Minimum distance (meters) between objects to consider them distinct
-    DEDUP_DISTANCE = 0.3
+    # Color matching tolerance (Euclidean distance in RGB space)
+    # Lower values = stricter matching (0.3 is fairly lenient)
+    COLOR_TOLERANCE = 0.3
 
-    def __init__(self, name: str, blackboard: Blackboard, target_colors: list = None):
+    def __init__(self, name: str, blackboard: Blackboard,
+                 target_colors: dict = None, color_tolerance: float = None):
         """
         Initialize the scanner.
 
         Args:
             name: Name of this behaviour node
             blackboard: Shared blackboard for communication
-            target_colors: List of color names to look for (e.g., ['red', 'green', 'blue'])
-                          If None, collects all recognized objects
+            target_colors: Dictionary mapping color names to RGB tuples.
+                          Example: {'red': (1.0, 0.0, 0.0), 'green': (0.0, 0.5, 0.0)}
+                          RGB values should be in range 0-1.
+                          If None, uses DEFAULT_COLORS.
+            color_tolerance: How close a detected color must be to match (default 0.3).
+                            Lower values = stricter matching.
         """
         super(ScanForObjects, self).__init__(name)
         self.blackboard = blackboard
-        self.target_colors = target_colors or ['red', 'green', 'blue']
+        self.target_colors = target_colors if target_colors is not None else DEFAULT_COLORS
+        self.color_tolerance = color_tolerance if color_tolerance is not None else self.COLOR_TOLERANCE
         self.robot = blackboard.read('robot')
         self.found_objects = []  # List of objects with world positions
         self.scan_complete = False
@@ -64,12 +81,16 @@ class ScanForObjects(py_trees.behaviour.Behaviour):
 
     def initialise(self):
         """Initialize scanning - record starting heading."""
-        self.found_objects = []
+        self.found_objects = {}  # Dict mapping color_name -> object info
         self.scan_complete = False
         self.initial_heading = self._get_heading()
         self.rotation_count = 0
         self.last_heading = self.initial_heading
-        print(f"ScanForObjects: Starting scan, initial heading: {np.degrees(self.initial_heading):.1f}°")
+
+        print(f"ScanForObjects: Starting scan for {len(self.target_colors)} objects:")
+        for color_name, rgb in self.target_colors.items():
+            print(f"  - {color_name}: RGB({rgb[0]:.2f}, {rgb[1]:.2f}, {rgb[2]:.2f})")
+        print(f"ScanForObjects: Initial heading: {np.degrees(self.initial_heading):.1f}°")
 
         # Start rotating
         self.left_motor.setVelocity(-self.turn_speed)
@@ -83,6 +104,11 @@ class ScanForObjects(py_trees.behaviour.Behaviour):
         """
         Transform camera-relative position to world coordinates.
 
+        Webots camera coordinate frame:
+        - cam_pos[0] = X = right (positive = right of camera)
+        - cam_pos[1] = Y = down (positive = below camera)
+        - cam_pos[2] = Z = forward (positive = depth/distance)
+
         Args:
             cam_pos: [x, y, z] position relative to camera
 
@@ -95,65 +121,73 @@ class ScanForObjects(py_trees.behaviour.Behaviour):
         robot_z = self.gps.getValues()[2]
         theta = self._get_heading()
 
-        # Camera position is relative to robot - cam_pos[0] is forward, cam_pos[1] is left, cam_pos[2] is up
-        # Transform to world frame
+        # Extract camera frame components
+        right = cam_pos[0]    # X: rightward offset from camera
+        down = cam_pos[1]     # Y: downward offset from camera
+        forward = cam_pos[2]  # Z: forward distance (depth)
+
         cos_t = np.cos(theta)
         sin_t = np.sin(theta)
 
-        # Rotate camera-relative position to world frame
-        world_x = robot_x + cam_pos[0] * cos_t - cam_pos[1] * sin_t
-        world_y = robot_y + cam_pos[0] * sin_t + cam_pos[1] * cos_t
-        world_z = robot_z + cam_pos[2]
+        # Transform to world frame:
+        # - Forward in camera -> along robot's heading direction
+        # - Right in camera -> perpendicular to robot's heading
+        world_x = robot_x + forward * cos_t + right * sin_t
+        world_y = robot_y + forward * sin_t - right * cos_t
+        world_z = robot_z - down  # Camera Y is down, world Z is up
+
+        # Debug output
+        print(f"  _camera_to_world: cam=({cam_pos[0]:.2f}, {cam_pos[1]:.2f}, {cam_pos[2]:.2f}) "
+              f"robot=({robot_x:.2f}, {robot_y:.2f}) heading={np.degrees(theta):.1f}° "
+              f"-> world=({world_x:.2f}, {world_y:.2f}, {world_z:.2f})")
 
         return [world_x, world_y, world_z]
 
-    def _is_duplicate(self, world_pos):
-        """
-        Check if an object at world_pos is a duplicate of an existing detection.
 
-        Uses distance-based deduplication to handle slight position variations.
+    def _color_distance(self, color1, color2):
         """
-        for existing in self.found_objects:
-            ex_pos = existing['position']
-            dist = np.sqrt(
-                (world_pos[0] - ex_pos[0])**2 +
-                (world_pos[1] - ex_pos[1])**2
-            )
-            if dist < self.DEDUP_DISTANCE:
-                return True
-        return False
+        Calculate Euclidean distance between two RGB colors.
 
-    def _color_matches(self, color_rgb, target_name):
+        Args:
+            color1: (r, g, b) tuple
+            color2: (r, g, b) tuple
+
+        Returns:
+            Float distance (0 = identical, sqrt(3) = max difference)
         """
-        Check if an RGB color matches a target color name.
+        return np.sqrt(
+            (color1[0] - color2[0])**2 +
+            (color1[1] - color2[1])**2 +
+            (color1[2] - color2[2])**2
+        )
+
+    def _get_color_name(self, color_rgb):
+        """
+        Find the closest matching color name from target_colors.
 
         Args:
             color_rgb: [r, g, b] values from 0-1
-            target_name: Color name like 'red', 'green', 'blue'
+
+        Returns:
+            Tuple of (color_name, distance) for the best match,
+            or ('unknown', float('inf')) if no match within tolerance
         """
-        r, g, b = color_rgb[0], color_rgb[1], color_rgb[2]
+        detected = (color_rgb[0], color_rgb[1], color_rgb[2])
 
-        if target_name == 'red':
-            return r > 0.5 and g < 0.4 and b < 0.4
-        elif target_name == 'green':
-            return g > 0.5 and r < 0.4 and b < 0.4
-        elif target_name == 'blue':
-            return b > 0.5 and r < 0.4 and g < 0.4
-        elif target_name == 'yellow':
-            return r > 0.5 and g > 0.5 and b < 0.4
-        elif target_name == 'cyan':
-            return g > 0.5 and b > 0.5 and r < 0.4
-        elif target_name == 'magenta':
-            return r > 0.5 and b > 0.5 and g < 0.4
+        best_name = 'unknown'
+        best_distance = float('inf')
+
+        for color_name, target_rgb in self.target_colors.items():
+            dist = self._color_distance(detected, target_rgb)
+            if dist < best_distance:
+                best_distance = dist
+                best_name = color_name
+
+        # Only return match if within tolerance
+        if best_distance <= self.color_tolerance:
+            return best_name
         else:
-            return True  # Accept any color if no specific match
-
-    def _get_color_name(self, color_rgb):
-        """Determine color name from RGB values."""
-        for color_name in ['red', 'green', 'blue', 'yellow', 'cyan', 'magenta']:
-            if self._color_matches(color_rgb, color_name):
-                return color_name
-        return 'unknown'
+            return 'unknown'
 
     def update(self):
         """
@@ -185,35 +219,53 @@ class ScanForObjects(py_trees.behaviour.Behaviour):
             colors = obj.getColors()
             obj_id = obj.getId()
 
-            # Get color name
+            # Get color name (returns 'unknown' if no match within tolerance)
             color_name = self._get_color_name(colors)
 
-            # Check if this is a target color
-            if color_name in self.target_colors:
-                # Transform to world coordinates
-                world_pos = self._camera_to_world(cam_position)
+            # Skip if this color was already found (one object per color)
+            if color_name in self.found_objects:
+                continue
 
-                # Check for duplicates using distance-based deduplication
-                if not self._is_duplicate(world_pos):
-                    self.found_objects.append({
-                        'color': color_name,
-                        'position': (world_pos[0], world_pos[1], world_pos[2]),
-                        'id': obj_id
-                    })
-                    print(f"ScanForObjects: Found {color_name} object at "
-                          f"world ({world_pos[0]:.2f}, {world_pos[1]:.2f}, {world_pos[2]:.2f})")
+            # Debug: show detected RGB if it didn't match any target
+            if color_name == 'unknown':
+                print(f"ScanForObjects: Unmatched color RGB=({colors[0]:.2f}, {colors[1]:.2f}, {colors[2]:.2f})")
+                continue
+
+            # Found a new target color - transform to world coordinates
+            world_pos = self._camera_to_world(cam_position)
+
+            # Store this object (one per color)
+            self.found_objects[color_name] = {
+                'color': color_name,
+                'position': (world_pos[0], world_pos[1], world_pos[2]),
+                'id': obj_id
+            }
+            print(f"ScanForObjects: Found {color_name} at "
+                  f"world ({world_pos[0]:.2f}, {world_pos[1]:.2f}, {world_pos[2]:.2f}) "
+                  f"[{len(self.found_objects)}/{len(self.target_colors)}]")
+
+        # Check if we've found all target colors (can finish early)
+        all_found = len(self.found_objects) == len(self.target_colors)
 
         # Check if we've completed a full rotation
-        if abs(self.rotation_count) >= 2 * np.pi:
+        if abs(self.rotation_count) >= 2 * np.pi or all_found:
             # Stop rotating
             self.left_motor.setVelocity(0.0)
             self.right_motor.setVelocity(0.0)
 
-            # Store found objects on blackboard
-            self.blackboard.write('detected_objects', self.found_objects)
+            # Convert dict to list for blackboard
+            objects_list = list(self.found_objects.values())
+            self.blackboard.write('detected_objects', objects_list)
 
-            print(f"ScanForObjects: Scan complete. Found {len(self.found_objects)} unique objects:")
-            for obj in self.found_objects:
+            # Report results
+            if all_found:
+                print(f"ScanForObjects: All {len(objects_list)} objects found!")
+            else:
+                missing = set(self.target_colors.keys()) - set(self.found_objects.keys())
+                print(f"ScanForObjects: Scan complete. Found {len(objects_list)}/{len(self.target_colors)} objects.")
+                print(f"  Missing: {', '.join(missing)}")
+
+            for obj in objects_list:
                 print(f"  - {obj['color']} at ({obj['position'][0]:.2f}, {obj['position'][1]:.2f})")
 
             return py_trees.common.Status.SUCCESS

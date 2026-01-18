@@ -5,134 +5,96 @@ This module provides IK-based arm control for precise end-effector positioning.
 Uses ikpy library to compute joint angles from target positions.
 """
 
+import os
 import numpy as np
 import py_trees
 from ikpy.chain import Chain
-from ikpy.link import URDFLink
 
 from behaviourtree import Blackboard
 
-
-def create_tiago_arm_chain():
-    """
-    Create the kinematic chain for the TIAGo robot arm.
-
-    The TIAGo arm has 7 DOF plus a torso lift joint.
-    This chain models the arm from base to gripper.
-
-    Joint order:
-    1. torso_lift_joint - prismatic (vertical lift)
-    2. arm_1_joint - shoulder yaw
-    3. arm_2_joint - shoulder pitch
-    4. arm_3_joint - shoulder roll
-    5. arm_4_joint - elbow pitch
-    6. arm_5_joint - forearm roll
-    7. arm_6_joint - wrist pitch
-    8. arm_7_joint - wrist roll
-
-    Returns:
-        ikpy Chain object representing the arm kinematics
-    """
-    # TIAGo arm link lengths (approximate, based on robot specs)
-    # These values are tuned for the Webots TIAGo model
-
-    chain = Chain(name='tiago_arm', links=[
-        # Base link (fixed)
-        URDFLink(
-            name="base",
-            origin_translation=[0, 0, 0],
-            origin_orientation=[0, 0, 0],
-            rotation=None,
-            joint_type="fixed"
-        ),
-        # Torso lift - vertical prismatic joint
-        URDFLink(
-            name="torso_lift_joint",
-            origin_translation=[0.0, 0.0, 0.60],  # Base height to torso
-            origin_orientation=[0, 0, 0],
-            rotation=[0, 0, 1],  # Moves along Z
-            joint_type="prismatic",
-            bounds=(0.0, 0.35)
-        ),
-        # Shoulder horizontal offset and arm_1 (yaw)
-        URDFLink(
-            name="arm_1_joint",
-            origin_translation=[0.157, 0.0, 0.19],  # Torso to shoulder
-            origin_orientation=[0, 0, 0],
-            rotation=[0, 0, 1],  # Rotation around Z (yaw)
-            bounds=(-1.18, 1.57)
-        ),
-        # arm_2 (shoulder pitch)
-        URDFLink(
-            name="arm_2_joint",
-            origin_translation=[0.125, 0.0155, 0.0],
-            origin_orientation=[0, 0, 0],
-            rotation=[0, 1, 0],  # Rotation around Y (pitch)
-            bounds=(-1.18, 1.57)
-        ),
-        # arm_3 (shoulder roll)
-        URDFLink(
-            name="arm_3_joint",
-            origin_translation=[0.0, 0.0, -0.02],
-            origin_orientation=[0, 0, 0],
-            rotation=[1, 0, 0],  # Rotation around X (roll)
-            bounds=(-3.14, 3.14)
-        ),
-        # arm_4 (elbow pitch)
-        URDFLink(
-            name="arm_4_joint",
-            origin_translation=[0.02, 0.0, -0.222],  # Upper arm length
-            origin_orientation=[0, 0, 0],
-            rotation=[0, 1, 0],  # Rotation around Y (pitch)
-            bounds=(0.0, 2.29)
-        ),
-        # arm_5 (forearm roll)
-        URDFLink(
-            name="arm_5_joint",
-            origin_translation=[0.0, 0.0, 0.0],
-            origin_orientation=[0, 0, 0],
-            rotation=[1, 0, 0],  # Rotation around X (roll)
-            bounds=(-2.07, 2.07)
-        ),
-        # arm_6 (wrist pitch)
-        URDFLink(
-            name="arm_6_joint",
-            origin_translation=[0.0, 0.0, -0.15],  # Forearm length
-            origin_orientation=[0, 0, 0],
-            rotation=[0, 1, 0],  # Rotation around Y (pitch)
-            bounds=(-1.39, 1.39)
-        ),
-        # arm_7 (wrist roll)
-        URDFLink(
-            name="arm_7_joint",
-            origin_translation=[0.0, 0.0, 0.0],
-            origin_orientation=[0, 0, 0],
-            rotation=[1, 0, 0],  # Rotation around X (roll)
-            bounds=(-2.07, 2.07)
-        ),
-        # End effector (gripper)
-        URDFLink(
-            name="gripper",
-            origin_translation=[0.0, 0.0, -0.12],  # Wrist to gripper tip
-            origin_orientation=[0, 0, 0],
-            rotation=None,
-            joint_type="fixed"
-        ),
-    ])
-
-    return chain
-
+# Path to URDF file (relative to this module)
+URDF_PATH = os.path.join(os.path.dirname(__file__), 'tiago_urdf.urdf')
 
 # Global chain instance
 TIAGO_ARM_CHAIN = None
 
 
 def get_arm_chain():
-    """Get or create the TIAGo arm chain (singleton)."""
+    """
+    Get or create the TIAGo arm chain from URDF (singleton).
+
+    Loads the kinematic chain from the URDF file, selecting only the
+    active joints needed for arm control (torso_lift + arm_1 through arm_7).
+
+    Returns:
+        ikpy Chain object representing the arm kinematics
+    """
     global TIAGO_ARM_CHAIN
     if TIAGO_ARM_CHAIN is None:
-        TIAGO_ARM_CHAIN = create_tiago_arm_chain()
+        # Define which joints are active in our chain
+        # We want: torso_lift_joint, arm_1_joint through arm_7_joint
+        active_joints = [
+            'torso_lift_joint',
+            'arm_1_joint',
+            'arm_2_joint',
+            'arm_3_joint',
+            'arm_4_joint',
+            'arm_5_joint',
+            'arm_6_joint',
+            'arm_7_joint',
+        ]
+
+        # Load chain from URDF
+        # base_elements specifies the root, last_link_vector points to end effector
+        TIAGO_ARM_CHAIN = Chain.from_urdf_file(
+            URDF_PATH,
+            base_elements=['base_link', 'base_link_Torso_joint', 'Torso'],
+            last_link_vector=[0, 0, -0.19],  # Offset to gripper tip
+            active_links_mask=[False] + [True] * 8 + [False]  # base fixed, joints active, gripper fixed
+        )
+
+        print(f"IK Chain loaded with {len(TIAGO_ARM_CHAIN.links)} links:")
+        for i, link in enumerate(TIAGO_ARM_CHAIN.links):
+            print(f"  {i}: {link.name}")
+
     return TIAGO_ARM_CHAIN
+
+
+def create_chain_from_urdf():
+    """
+    Alternative: Create chain with explicit joint selection.
+
+    This provides more control over which joints are included.
+    """
+    try:
+        chain = Chain.from_urdf_file(
+            URDF_PATH,
+            base_elements=['base_link'],
+            # Only include joints we can control
+            active_links_mask=None  # Will be set based on joint names
+        )
+        return chain
+    except Exception as e:
+        print(f"Failed to load URDF: {e}")
+        return None
+
+
+def get_active_joint_names(chain):
+    """
+    Extract the names of active (non-fixed) joints from the chain.
+
+    Returns:
+        List of joint names that are controllable
+    """
+    active_names = []
+    for link in chain.links:
+        # Check if this link has an active joint (not fixed)
+        if hasattr(link, 'joint_type') and link.joint_type != 'fixed':
+            active_names.append(link.name)
+        elif hasattr(link, 'bounds') and link.bounds is not None:
+            # Another way to detect active joints
+            active_names.append(link.name)
+    return active_names
 
 
 def compute_ik(target_position, target_orientation=None, initial_position=None):
@@ -169,9 +131,9 @@ def compute_ik(target_position, target_orientation=None, initial_position=None):
                 initial_position=initial_position
             )
 
-        # Map joint angles to joint names
-        # Skip the base link and gripper link
-        joint_names = [
+        # Map joint angles to joint names based on chain structure
+        # The controllable joints we care about
+        target_joints = [
             'torso_lift_joint',
             'arm_1_joint',
             'arm_2_joint',
@@ -182,15 +144,37 @@ def compute_ik(target_position, target_orientation=None, initial_position=None):
             'arm_7_joint'
         ]
 
-        # joint_angles[0] is base (fixed), joint_angles[1:9] are the arm joints
         result = {}
-        for i, name in enumerate(joint_names):
-            result[name] = joint_angles[i + 1]  # +1 to skip base link
+
+        # Map chain link indices to joint names
+        for i, link in enumerate(chain.links):
+            link_name = link.name
+            # Check if this link corresponds to one of our target joints
+            for joint_name in target_joints:
+                if joint_name in link_name or link_name == joint_name:
+                    result[joint_name] = joint_angles[i]
+                    break
+
+        # If we didn't find all joints via name matching, fall back to index-based
+        if len(result) < len(target_joints):
+            print(f"IK: Name matching found {len(result)} joints, using index fallback")
+            result = {}
+            # Assume active joints are in order after the base
+            active_idx = 0
+            for i, link in enumerate(chain.links):
+                if i > 0 and active_idx < len(target_joints):
+                    # Skip fixed links if we can detect them
+                    if hasattr(link, 'joint_type') and link.joint_type == 'fixed':
+                        continue
+                    result[target_joints[active_idx]] = joint_angles[i]
+                    active_idx += 1
 
         return result
 
     except Exception as e:
         print(f"IK computation failed: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 
@@ -207,17 +191,29 @@ def compute_fk(joint_angles):
     chain = get_arm_chain()
 
     if isinstance(joint_angles, dict):
-        # Convert dict to list
-        angles = [0]  # base link
-        angles.append(joint_angles.get('torso_lift_joint', 0.15))
-        angles.append(joint_angles.get('arm_1_joint', 0))
-        angles.append(joint_angles.get('arm_2_joint', 0))
-        angles.append(joint_angles.get('arm_3_joint', 0))
-        angles.append(joint_angles.get('arm_4_joint', 0))
-        angles.append(joint_angles.get('arm_5_joint', 0))
-        angles.append(joint_angles.get('arm_6_joint', 0))
-        angles.append(joint_angles.get('arm_7_joint', 0))
-        angles.append(0)  # gripper (fixed)
+        # Build angle list matching chain structure
+        angles = []
+        target_joints = [
+            'torso_lift_joint',
+            'arm_1_joint',
+            'arm_2_joint',
+            'arm_3_joint',
+            'arm_4_joint',
+            'arm_5_joint',
+            'arm_6_joint',
+            'arm_7_joint'
+        ]
+
+        for i, link in enumerate(chain.links):
+            # Try to find matching joint angle
+            found = False
+            for joint_name in target_joints:
+                if joint_name in link.name or link.name == joint_name:
+                    angles.append(joint_angles.get(joint_name, 0))
+                    found = True
+                    break
+            if not found:
+                angles.append(0)  # Fixed or unknown joint
     else:
         angles = joint_angles
 

@@ -363,7 +363,8 @@ tree = Sequence("Main - Jar Collection", memory=True, children=[
     PrintStatus("Start", "Starting jar collection mission"),
 
     # Phase 1: Scan environment to find all jars
-    ScanForObjects("Scan for jars", blackboard, ['red', 'green', 'blue']),
+    # Define the specific RGB colors for our jars (values 0-1)
+    ScanForObjects("Scan for jars", blackboard),
 
     # Phase 2: Collect jars one by one
     # The Repeat decorator will keep running until the child fails
