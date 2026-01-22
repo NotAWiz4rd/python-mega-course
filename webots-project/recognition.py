@@ -100,47 +100,53 @@ class ScanForObjects(py_trees.behaviour.Behaviour):
         """Get current heading from compass."""
         return np.arctan2(self.compass.getValues()[0], self.compass.getValues()[1])
 
-    def _camera_to_world(self, cam_pos):
+    def _get_object_world_position(self, obj):
         """
-        Transform camera-relative position to world coordinates.
+        Get the world position of a recognized object.
 
-        Webots camera coordinate frame:
-        - cam_pos[0] = X = right (positive = right of camera)
-        - cam_pos[1] = Y = down (positive = below camera)
-        - cam_pos[2] = Z = forward (positive = depth/distance)
+        Tries multiple approaches since Webots recognition API behavior
+        can vary. First tries getPositionOnImage for 2D, then getPosition.
 
         Args:
-            cam_pos: [x, y, z] position relative to camera
+            obj: Webots RecognitionObject
 
         Returns:
             [x, y, z] position in world coordinates
         """
-        # Get robot position and heading
+        # Get robot position for reference
         robot_x = self.gps.getValues()[0]
         robot_y = self.gps.getValues()[1]
         robot_z = self.gps.getValues()[2]
         theta = self._get_heading()
 
-        # Extract camera frame components
-        right = cam_pos[0]    # X: rightward offset from camera
-        down = cam_pos[1]     # Y: downward offset from camera
-        forward = cam_pos[2]  # Z: forward distance (depth)
+        # getPosition() returns position relative to the camera
+        cam_pos = obj.getPosition()
+
+        # Debug: print raw values
+        print(f"  Raw getPosition(): ({cam_pos[0]:.3f}, {cam_pos[1]:.3f}, {cam_pos[2]:.3f})")
+        print(f"  Robot at: ({robot_x:.2f}, {robot_y:.2f}, {robot_z:.2f}), heading: {np.degrees(theta):.1f}°")
+
+        # Try interpretation 1: cam_pos might already be world-relative
+        # (some Webots versions/configs return world coordinates)
+        if abs(cam_pos[0]) > 0.5 or abs(cam_pos[1]) > 0.5:
+            # Values seem too large for camera-relative, might be world coords
+            print(f"  -> Using as world coords: ({cam_pos[0]:.2f}, {cam_pos[1]:.2f}, {cam_pos[2]:.2f})")
+            return [cam_pos[0], cam_pos[1], cam_pos[2]]
+
+        # Try interpretation 2: camera-relative with Z=forward, X=right, Y=down
+        # Transform to world frame
+        forward = cam_pos[2]  # depth
+        right = cam_pos[0]
+        down = cam_pos[1]
 
         cos_t = np.cos(theta)
         sin_t = np.sin(theta)
 
-        # Transform to world frame:
-        # - Forward in camera -> along robot's heading direction
-        # - Right in camera -> perpendicular to robot's heading
-        world_x = robot_x + forward * cos_t + right * sin_t
-        world_y = robot_y + forward * sin_t - right * cos_t
-        world_z = robot_z - down  # Camera Y is down, world Z is up
+        world_x = robot_x + forward * cos_t - right * sin_t
+        world_y = robot_y + forward * sin_t + right * cos_t
+        world_z = robot_z - down
 
-        # Debug output
-        print(f"  _camera_to_world: cam=({cam_pos[0]:.2f}, {cam_pos[1]:.2f}, {cam_pos[2]:.2f}) "
-              f"robot=({robot_x:.2f}, {robot_y:.2f}) heading={np.degrees(theta):.1f}° "
-              f"-> world=({world_x:.2f}, {world_y:.2f}, {world_z:.2f})")
-
+        print(f"  -> Transformed to world: ({world_x:.2f}, {world_y:.2f}, {world_z:.2f})")
         return [world_x, world_y, world_z]
 
 
@@ -214,8 +220,6 @@ class ScanForObjects(py_trees.behaviour.Behaviour):
         recognition_objects = self.camera.getRecognitionObjects()
 
         for obj in recognition_objects:
-            # Get object position (relative to camera)
-            cam_position = obj.getPosition()
             colors = obj.getColors()
             obj_id = obj.getId()
 
@@ -231,8 +235,8 @@ class ScanForObjects(py_trees.behaviour.Behaviour):
                 print(f"ScanForObjects: Unmatched color RGB=({colors[0]:.2f}, {colors[1]:.2f}, {colors[2]:.2f})")
                 continue
 
-            # Found a new target color - transform to world coordinates
-            world_pos = self._camera_to_world(cam_position)
+            # Found a new target color - get world coordinates
+            world_pos = self._get_object_world_position(obj)
 
             # Store this object (one per color)
             self.found_objects[color_name] = {
