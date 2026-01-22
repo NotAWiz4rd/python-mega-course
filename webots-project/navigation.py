@@ -296,3 +296,74 @@ class Navigation(py_trees.behaviour.Behaviour):
         # Stop motors
         self.left_motor.setVelocity(0.0)
         self.right_motor.setVelocity(0.0)
+
+
+class DriveForward(py_trees.behaviour.Behaviour):
+    """
+    Behaviour that drives the robot forward a specified distance.
+
+    Useful for fine positioning after waypoint navigation, e.g., getting
+    closer to an object than the path planner allows.
+    """
+
+    def __init__(self, name: str, blackboard, distance: float, speed: float = 2.0):
+        """
+        Initialize the DriveForward behaviour.
+
+        Args:
+            name: Name of this behaviour node
+            blackboard: Shared blackboard for inter-behaviour communication
+            distance: Distance to drive forward in meters
+            speed: Forward speed in rad/s (default 2.0)
+        """
+        super(DriveForward, self).__init__(name)
+        self.blackboard = blackboard
+        self.distance = distance
+        self.speed = speed
+        self.robot = blackboard.read('robot')
+        self.start_position = None
+
+    def setup(self):
+        """Set up sensors and actuators."""
+        self.timestep = int(self.robot.getBasicTimeStep())
+
+        self.gps = self.robot.getDevice('gps')
+        self.gps.enable(self.timestep)
+
+        self.left_motor = self.robot.getDevice('wheel_left_joint')
+        self.right_motor = self.robot.getDevice('wheel_right_joint')
+        self.left_motor.setPosition(float('inf'))
+        self.right_motor.setPosition(float('inf'))
+
+    def initialise(self):
+        """Record starting position."""
+        self.start_position = (
+            self.gps.getValues()[0],
+            self.gps.getValues()[1]
+        )
+        self.left_motor.setVelocity(self.speed)
+        self.right_motor.setVelocity(self.speed)
+        print(f"DriveForward: Driving {self.distance}m forward from "
+              f"({self.start_position[0]:.2f}, {self.start_position[1]:.2f})")
+
+    def update(self):
+        """Check if we've traveled the required distance."""
+        current_x = self.gps.getValues()[0]
+        current_y = self.gps.getValues()[1]
+
+        dx = current_x - self.start_position[0]
+        dy = current_y - self.start_position[1]
+        traveled = np.sqrt(dx**2 + dy**2)
+
+        if traveled >= self.distance:
+            self.left_motor.setVelocity(0.0)
+            self.right_motor.setVelocity(0.0)
+            print(f"DriveForward: Reached target distance ({traveled:.2f}m)")
+            return py_trees.common.Status.SUCCESS
+
+        return py_trees.common.Status.RUNNING
+
+    def terminate(self, new_status):
+        """Stop motors when behaviour ends."""
+        self.left_motor.setVelocity(0.0)
+        self.right_motor.setVelocity(0.0)

@@ -14,7 +14,7 @@ from py_trees.composites import Sequence, Selector
 from py_trees.decorators import Repeat
 
 from behaviourtree import Blackboard
-from navigation import Navigation, TurnToHeading
+from navigation import Navigation, TurnToHeading, DriveForward
 from planning import Planning
 from jointcontrol import (
     PositionJoints, GripWithForce, ReleaseGripper,
@@ -307,27 +307,8 @@ class PrintStatus(py_trees.behaviour.Behaviour):
         return py_trees.common.Status.SUCCESS
 
 
-# Build the single jar collection sequence
-# This sequence handles: approach, grasp, transport, and place for one jar
-single_jar_sequence = Sequence("Collect Single Jar", memory=True, children=[
-    # Select the next target jar
-    SelectNextTarget("Select next jar", blackboard),
-
-    # Compute approach position for this jar
-    GetTargetApproachPosition("Compute approach", blackboard),
-
-    # Plan and navigate to approach position
-    DynamicPlanning("Plan to jar", blackboard, 'approach_position'),
-    Navigation("Navigate to jar", blackboard),
-
-    # Turn to face the jar
-    TurnToTarget("Face jar", blackboard, 'grasp_target_position'),
-
-    # Prepare arm for grasping
-    PositionJoints("Open gripper", HAND_OPEN, blackboard),
-    PositionJoints("Approach position", ARM_APPROACH_POSITION, blackboard),
-    PositionJoints("Lower to grasp", ARM_GRASP_POSITION, blackboard),
-
+# Grasp and transport sequence - only runs if grasp succeeds
+grasp_and_deliver = Sequence("Grasp and deliver", memory=True, children=[
     # Grasp the jar
     GripWithForce("Grip jar", blackboard),
 
@@ -353,6 +334,45 @@ single_jar_sequence = Sequence("Collect Single Jar", memory=True, children=[
     PositionJoints("Retract arm", ARM_CARRY, blackboard),
 
     PrintStatus("Jar placed", "Jar placed on table"),
+])
+
+# Recovery sequence when grasp fails - retract arm and continue to next jar
+grasp_failed_recovery = Sequence("Handle failed grasp", memory=True, children=[
+    PrintStatus("Grasp failed", "Failed to grasp jar, moving to next target"),
+    PositionJoints("Retract after fail", ARM_CARRY, blackboard),
+])
+
+# Selector tries grasp first, falls back to recovery on failure
+# This ensures the single_jar_sequence always succeeds (unless SelectNextTarget fails)
+attempt_grasp = Selector("Attempt grasp", memory=False, children=[
+    grasp_and_deliver,
+    grasp_failed_recovery,
+])
+
+# Build the single jar collection sequence
+# This sequence handles: approach, attempt grasp, and either deliver or skip
+single_jar_sequence = Sequence("Collect Single Jar", memory=True, children=[
+    # Select the next target jar (FAILURE here = no more jars = stop loop)
+    SelectNextTarget("Select next jar", blackboard),
+
+    # Compute approach position for this jar (0.6m to stay clear of obstacles in cspace)
+    GetTargetApproachPosition("Compute approach", blackboard, approach_distance=0.4),
+
+    # Plan and navigate to approach position
+    DynamicPlanning("Plan to jar", blackboard, 'approach_position'),
+    Navigation("Navigate to jar", blackboard),
+
+    # Turn to face the jar, then drive closer (path planner can't get us all the way)
+    TurnToTarget("Face jar", blackboard, 'grasp_target_position'),
+    DriveForward("Drive closer to jar", blackboard, distance=0.25),
+
+    # Prepare arm for grasping
+    PositionJoints("Open gripper", HAND_OPEN, blackboard),
+    PositionJoints("Approach position", ARM_APPROACH_POSITION, blackboard),
+    PositionJoints("Lower to grasp", ARM_GRASP_POSITION, blackboard),
+
+    # Try to grasp and deliver - if grasp fails, recovers and continues
+    attempt_grasp,
 ])
 
 
