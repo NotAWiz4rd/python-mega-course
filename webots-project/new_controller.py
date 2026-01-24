@@ -7,6 +7,10 @@ from controller import Supervisor
 from ikpy.chain import Chain
 from py_trees import common
 
+from grasping_control import DynamicPlanning, TurnToTarget
+from navigation import Navigation, DriveForward
+from recognition import GetTargetApproachPosition
+
 MAX_MOTOR_SPEED = 6.0
 MIN_MOTOR_SPEED = 0.5
 ANGLE_TOLERANCE = 0.05  # ca. 3.5 degrees
@@ -14,6 +18,9 @@ ANGLE_TOLERANCE = 0.05  # ca. 3.5 degrees
 # init
 robot = Supervisor()
 timestep = int(robot.getBasicTimeStep())
+
+blackboard = py_trees.blackboard.Blackboard()
+blackboard.set("robot", robot)
 
 # save + parse URDF file for IK
 urdf_path = "Robot.urdf"
@@ -118,9 +125,6 @@ for part_name in part_names:
 camera = robot.getDevice("camera")
 camera.enable(timestep)
 camera.recognitionEnable(timestep)
-
-#display = robot.getDevice("display")
-#display.attachCamera(camera)
 
 gps = robot.getDevice("gps")
 gps.enable(timestep)
@@ -628,8 +632,8 @@ class GraspController(py_trees.behaviour.Behaviour):
 
         if new_status == common.Status.FAILURE:
             # Open gripper on failure
-            motors["gripper_left_finger_joint"].setPosition(0.045)
-            motors["gripper_right_finger_joint"].setPosition(0.045)
+            motors["gripper_left_finger_joint"].setPosition(0.046)
+            motors["gripper_right_finger_joint"].setPosition(0.046)
 
 
 # Navigation Behvaviours
@@ -1163,7 +1167,7 @@ class LiftAndVerify(py_trees.behaviour.Behaviour):
 
 
 class BackupAfterGrasp(py_trees.behaviour.Behaviour):
-    def __init__(self, name: str, backup_distance=0.12, duration=3.0):
+    def __init__(self, name: str, backup_distance=0.2, duration=3.0):
         super(BackupAfterGrasp, self).__init__(name)
         self.backup_distance = backup_distance
         self.duration = duration
@@ -1277,19 +1281,42 @@ def create_behaviour_tree():
         move_to_table = create_movement_with_avoidance(basic_move_to_table)
         move_to_home = create_movement_with_avoidance(basic_move_to_home)
 
+        get_target_table = GetTargetApproachPosition("Compute approach", blackboard, table_waypoints[-1],
+                                                     approach_distance=0.5)
+
+        # Plan and navigate to approach position
+        plan_table_path = DynamicPlanning("Plan to table", 'approach_position')
+        navigate_table = Navigation("Navigate to table", blackboard)
+        approach_target = DriveForward("Drive closer to table", blackboard, distance=0.35)
+        face_table = TurnToTarget("Face table", 'approach_position')
+
         place_object = MoveToPosition(f"Move to Object {i + 1}", place_position, timeout=8.0)
         open_gripper = OpenGripper(f"Open Gripper {i + 1}")
         reset_for_home = MoveToPosition(f"Reset for Home {i + 1}", starting_position)
+
+        get_target_home = GetTargetApproachPosition("Compute approach", blackboard, home_waypoint[0],
+                                                    approach_distance=0.0)
+        plan_home_path = DynamicPlanning("Plan to home", 'approach_position')
+        navigate_home = Navigation("Navigate to home", blackboard)
+        backup_after_drop = BackupAfterGrasp(f"Backup after drop {i + 1}")
 
         transport_and_place.add_children([
             py_trees.behaviours.Success(name=f"StartTransport_{i + 1}"),
             backup,
             lift_object,
-            move_to_table,
+            get_target_table,
+            plan_table_path,
+            navigate_table,
+            face_table,
+            approach_target,
+            # move_to_table,
             place_object,
             open_gripper,
             reset_for_home,
-            move_to_home,
+            backup_after_drop,
+            get_target_home,
+            plan_home_path,
+            navigate_home
         ])
 
         # combine all phases
@@ -1333,8 +1360,6 @@ def main():
 
             status = behaviour_tree.root.status
             if current_time - last_print_time >= print_interval:
-                #print(f"Behaviour Tree Status:")
-                #print(py_trees.display.ascii_tree(behaviour_tree.root))
                 last_print_time = current_time
 
             if status in (common.Status.SUCCESS, common.Status.FAILURE):

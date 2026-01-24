@@ -7,8 +7,6 @@ collision-free paths through the environment's configuration space.
 
 import numpy as np
 import py_trees
-from py_trees.blackboard import Blackboard
-import matplotlib.pyplot as plt
 
 
 def world2map(x_world, y_world):
@@ -276,7 +274,7 @@ class Planning(py_trees.behaviour.Behaviour):
         robot: Reference to the Webots robot/supervisor instance
     """
 
-    def __init__(self, name: str, blackboard: Blackboard, goal_world: tuple):
+    def __init__(self, name: str, blackboard: py_trees.blackboard.Blackboard, goal_world: tuple):
         """
         Initialize the Planning behaviour.
 
@@ -288,7 +286,7 @@ class Planning(py_trees.behaviour.Behaviour):
         super(Planning, self).__init__(name)
         self.blackboard = blackboard
         self.goal_world = goal_world
-        self.robot = blackboard.read('robot')
+        self.robot = blackboard.get('robot')
 
     def setup(self):
         """
@@ -364,7 +362,7 @@ class Planning(py_trees.behaviour.Behaviour):
         waypoints_world = [map2world(p[0], p[1]) for p in path]
 
         # Store waypoints in blackboard for Navigation to use
-        self.blackboard.write('waypoints', waypoints_world)
+        self.blackboard.set('waypoints', waypoints_world)
 
         print(f"Planning: Computed {len(waypoints_world)} waypoints:")
         for i, wp in enumerate(waypoints_world):

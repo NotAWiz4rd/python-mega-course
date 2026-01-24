@@ -7,7 +7,6 @@ the environment and builds a configuration space (cspace) for path planning.
 
 import numpy as np
 import py_trees
-from py_trees.blackboard import Blackboard
 from scipy import signal
 import matplotlib.pyplot as plt
 
@@ -61,7 +60,7 @@ class Mapping(py_trees.behaviour.Behaviour):
         has_run: Flag to track if mapping has executed at least once
     """
 
-    def __init__(self, name: str, blackboard: Blackboard):
+    def __init__(self, name: str, blackboard: py_trees.blackboard.Blackboard):
         """
         Initialize the Mapping behaviour.
 
@@ -73,7 +72,7 @@ class Mapping(py_trees.behaviour.Behaviour):
 
         self.blackboard = blackboard
         self.has_run = False
-        self.robot = blackboard.read('robot')
+        self.robot = blackboard.get('robot')
 
     def setup(self):
         """

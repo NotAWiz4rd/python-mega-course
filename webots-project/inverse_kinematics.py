@@ -10,7 +10,6 @@ import numpy as np
 import py_trees
 from ikpy.chain import Chain
 
-from behaviourtree import Blackboard
 
 # Path to URDF file (relative to this module)
 URDF_PATH = os.path.join(os.path.dirname(__file__), 'tiago_urdf.urdf')
@@ -230,7 +229,7 @@ class MoveArmToPosition(py_trees.behaviour.Behaviour):
 
     POSITION_TOLERANCE = 0.02  # radians
 
-    def __init__(self, name: str, blackboard: Blackboard, target_position=None,
+    def __init__(self, name: str, blackboard: py_trees.blackboard.Blackboard, target_position=None,
                  position_key: str = None, height_offset: float = 0.0):
         """
         Initialize the IK movement behaviour.
@@ -247,7 +246,7 @@ class MoveArmToPosition(py_trees.behaviour.Behaviour):
         self.fixed_target = target_position
         self.position_key = position_key
         self.height_offset = height_offset
-        self.robot = blackboard.read('robot')
+        self.robot = blackboard.get('robot')
         self.target_joints = None
         self.joint_motors = {}
         self.joint_sensors = {}
@@ -274,7 +273,7 @@ class MoveArmToPosition(py_trees.behaviour.Behaviour):
         if self.fixed_target is not None:
             target = self.fixed_target
         elif self.position_key:
-            target = self.blackboard.read(self.position_key)
+            target = self.blackboard.get(self.position_key)
             if target is None:
                 print(f"MoveArmToPosition: No target found at key '{self.position_key}'")
                 self.target_joints = None
@@ -351,7 +350,7 @@ class MoveArmToRelativePosition(py_trees.behaviour.Behaviour):
 
     POSITION_TOLERANCE = 0.02
 
-    def __init__(self, name: str, blackboard: Blackboard, world_position_key: str,
+    def __init__(self, name: str, blackboard: py_trees.blackboard.Blackboard, world_position_key: str,
                  approach_height: float = 0.15, grasp_height: float = 0.0):
         """
         Args:
@@ -366,7 +365,7 @@ class MoveArmToRelativePosition(py_trees.behaviour.Behaviour):
         self.world_position_key = world_position_key
         self.approach_height = approach_height
         self.grasp_height = grasp_height
-        self.robot = blackboard.read('robot')
+        self.robot = blackboard.get('robot')
         self.target_joints = None
         self.phase = 'approach'  # 'approach' or 'grasp'
 
@@ -419,7 +418,7 @@ class MoveArmToRelativePosition(py_trees.behaviour.Behaviour):
         self.phase = 'approach'
 
         # Get world position from blackboard
-        world_pos = self.blackboard.read(self.world_position_key)
+        world_pos = self.blackboard.get(self.world_position_key)
         if world_pos is None:
             print(f"MoveArmToRelativePosition: No position at key '{self.world_position_key}'")
             return
@@ -472,7 +471,7 @@ class IKGraspSequence(py_trees.behaviour.Behaviour):
 
     POSITION_TOLERANCE = 0.02
 
-    def __init__(self, name: str, blackboard: Blackboard,
+    def __init__(self, name: str, blackboard: py_trees.blackboard.Blackboard,
                  target_position_key: str = 'grasp_target_position',
                  approach_offset: float = 0.10,
                  grasp_offset: float = 0.02):
@@ -489,7 +488,7 @@ class IKGraspSequence(py_trees.behaviour.Behaviour):
         self.target_position_key = target_position_key
         self.approach_offset = approach_offset
         self.grasp_offset = grasp_offset
-        self.robot = blackboard.read('robot')
+        self.robot = blackboard.get('robot')
         self.phase = 'init'  # init -> approach -> lower -> done
         self.target_joints = None
 
@@ -566,7 +565,7 @@ class IKGraspSequence(py_trees.behaviour.Behaviour):
         self.target_joints = None
 
     def update(self):
-        world_pos = self.blackboard.read(self.target_position_key)
+        world_pos = self.blackboard.get(self.target_position_key)
         if world_pos is None:
             print(f"IKGraspSequence: No target at '{self.target_position_key}'")
             return py_trees.common.Status.FAILURE

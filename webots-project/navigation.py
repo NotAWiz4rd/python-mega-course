@@ -26,7 +26,7 @@ class TurnToHeading(py_trees.behaviour.Behaviour):
         turn_speed: Base angular velocity for turning
     """
 
-    def __init__(self, name: str, blackboard: Blackboard, target_location: tuple,
+    def __init__(self, name: str, blackboard: py_trees.blackboard.Blackboard, target_location: tuple,
                  turn_speed: float = 1.5):
         """
         Initialize the TurnToHeading behaviour.
@@ -41,7 +41,7 @@ class TurnToHeading(py_trees.behaviour.Behaviour):
         self.blackboard = blackboard
         self.target_location = target_location
         self.turn_speed = turn_speed
-        self.robot = blackboard.read('robot')
+        self.robot = blackboard.get('robot')
         self.target_heading = None  # Computed in initialise()
 
     def setup(self):
@@ -146,7 +146,7 @@ class Navigation(py_trees.behaviour.Behaviour):
         index: Current waypoint index
     """
 
-    def __init__(self, name: str, blackboard: Blackboard):
+    def __init__(self, name: str, blackboard: py_trees.blackboard.Blackboard):
         """
         Initialize the Navigation behaviour.
 
@@ -156,7 +156,7 @@ class Navigation(py_trees.behaviour.Behaviour):
         """
         super(Navigation, self).__init__(name)
         self.blackboard = blackboard
-        self.robot = blackboard.read('robot')
+        self.robot = blackboard.get('robot')
 
     def setup(self):
         """
@@ -202,7 +202,7 @@ class Navigation(py_trees.behaviour.Behaviour):
         self.index = 0
 
         # Get waypoints from blackboard (set by Planning behaviour)
-        self.waypoints = self.blackboard.read('waypoints')
+        self.waypoints = self.blackboard.get('waypoints')
 
         self.logger.debug(f"Navigation initialised with {len(self.waypoints)} waypoints")
 
@@ -259,7 +259,7 @@ class Navigation(py_trees.behaviour.Behaviour):
         speed_right = forward_speed + steering
 
         # Clamp wheel speeds to motor limits (-6.28 to 6.28 rad/s)
-        max_speed = 6.28
+        max_speed = 6.28 * 0.4
         speed_left = max(-max_speed, min(max_speed, speed_left))
         speed_right = max(-max_speed, min(max_speed, speed_right))
 
@@ -320,7 +320,7 @@ class DriveForward(py_trees.behaviour.Behaviour):
         self.blackboard = blackboard
         self.distance = distance
         self.speed = speed
-        self.robot = blackboard.read('robot')
+        self.robot = blackboard.get('robot')
         self.start_position = None
 
     def setup(self):

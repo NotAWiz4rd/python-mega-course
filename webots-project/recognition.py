@@ -7,7 +7,6 @@ and detecting objects based on their recognition colors.
 
 import py_trees
 import numpy as np
-from behaviourtree import Blackboard
 
 
 # Default color definitions (RGB values from 0-1)
@@ -32,7 +31,7 @@ class ScanForObjects(py_trees.behaviour.Behaviour):
     # Lower values = stricter matching (0.3 is fairly lenient)
     COLOR_TOLERANCE = 0.3
 
-    def __init__(self, name: str, blackboard: Blackboard,
+    def __init__(self, name: str, blackboard: py_trees.blackboard.Blackboard,
                  target_colors: dict = None, color_tolerance: float = None):
         """
         Initialize the scanner.
@@ -51,7 +50,7 @@ class ScanForObjects(py_trees.behaviour.Behaviour):
         self.blackboard = blackboard
         self.target_colors = target_colors if target_colors is not None else DEFAULT_COLORS
         self.color_tolerance = color_tolerance if color_tolerance is not None else self.COLOR_TOLERANCE
-        self.robot = blackboard.read('robot')
+        self.robot = blackboard.get('robot')
         self.found_objects = []  # List of objects with world positions
         self.scan_complete = False
         self.initial_heading = None
@@ -259,7 +258,7 @@ class ScanForObjects(py_trees.behaviour.Behaviour):
 
             # Convert dict to list for blackboard
             objects_list = list(self.found_objects.values())
-            self.blackboard.write('detected_objects', objects_list)
+            self.blackboard.set('detected_objects', objects_list)
 
             # Report results
             if all_found:
@@ -289,13 +288,13 @@ class SelectNextTarget(py_trees.behaviour.Behaviour):
     Removes the selected target from the list and stores it as current_target.
     """
 
-    def __init__(self, name: str, blackboard: Blackboard):
+    def __init__(self, name: str, blackboard: py_trees.blackboard.Blackboard):
         super(SelectNextTarget, self).__init__(name)
         self.blackboard = blackboard
 
     def update(self):
         """Select the next target from detected objects."""
-        objects = self.blackboard.read('detected_objects') or []
+        objects = self.blackboard.get('detected_objects') or []
 
         if not objects:
             print("SelectNextTarget: No more objects to collect!")
@@ -303,8 +302,8 @@ class SelectNextTarget(py_trees.behaviour.Behaviour):
 
         # Take the first object as target
         target = objects.pop(0)
-        self.blackboard.write('current_target', target)
-        self.blackboard.write('detected_objects', objects)
+        self.blackboard.set('current_target', target)
+        self.blackboard.set('detected_objects', objects)
 
         print(f"SelectNextTarget: Selected {target['color']} jar at "
               f"({target['position'][0]:.2f}, {target['position'][1]:.2f})")
@@ -316,13 +315,13 @@ class SelectNextTarget(py_trees.behaviour.Behaviour):
 class HasMoreTargets(py_trees.behaviour.Behaviour):
     """Condition to check if there are more targets to collect."""
 
-    def __init__(self, name: str, blackboard: Blackboard):
+    def __init__(self, name: str, blackboard: py_trees.blackboard.Blackboard):
         super(HasMoreTargets, self).__init__(name)
         self.blackboard = blackboard
 
     def update(self):
         """Check if there are remaining objects."""
-        objects = self.blackboard.read('detected_objects') or []
+        objects = self.blackboard.get('detected_objects') or []
 
         if objects:
             return py_trees.common.Status.SUCCESS
@@ -338,11 +337,12 @@ class GetTargetApproachPosition(py_trees.behaviour.Behaviour):
     to face the object at grasping distance.
     """
 
-    def __init__(self, name: str, blackboard: Blackboard, approach_distance: float = 0.6):
+    def __init__(self, name: str, blackboard: py_trees.blackboard.Blackboard, target, approach_distance: float = 0.6):
         super(GetTargetApproachPosition, self).__init__(name)
         self.blackboard = blackboard
         self.approach_distance = approach_distance
-        self.robot = blackboard.read('robot')
+        self.robot = blackboard.get('robot')
+        self.target = target
 
     def setup(self):
         self.timestep = int(self.robot.getBasicTimeStep())
@@ -351,7 +351,7 @@ class GetTargetApproachPosition(py_trees.behaviour.Behaviour):
 
     def update(self):
         """Compute approach waypoint."""
-        target = self.blackboard.read('current_target')
+        target = self.target
         if not target:
             return py_trees.common.Status.FAILURE
 
@@ -360,7 +360,7 @@ class GetTargetApproachPosition(py_trees.behaviour.Behaviour):
         robot_y = self.gps.getValues()[1]
 
         # Target position
-        target_x, target_y = target['position'][0], target['position'][1]
+        target_x, target_y = target[0], target[1]
 
         # Compute direction from target to robot
         dx = robot_x - target_x
@@ -375,8 +375,8 @@ class GetTargetApproachPosition(py_trees.behaviour.Behaviour):
         approach_x = target_x + (dx / dist) * self.approach_distance
         approach_y = target_y + (dy / dist) * self.approach_distance
 
-        self.blackboard.write('approach_position', (approach_x, approach_y))
-        self.blackboard.write('grasp_target_position', (target_x, target_y, target['position'][2]))
+        self.blackboard.set('approach_position', (approach_x, approach_y))
+        self.blackboard.set('grasp_target_position', (target_x, target_y, target[2]))
 
         print(f"GetTargetApproachPosition: Approach at ({approach_x:.2f}, {approach_y:.2f})")
 

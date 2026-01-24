@@ -1,7 +1,5 @@
 import py_trees
 
-from behaviourtree import Blackboard
-
 POSITION_TOLERANCE = 0.01  # radians (or meters for prismatic joints)
 
 # Force threshold for gripping (Newtons) - adjust based on glass fragility
@@ -89,11 +87,11 @@ HAND_CLOSE = {
 
 
 class PositionJoints(py_trees.behaviour.Behaviour):
-    def __init__(self, name: str, position, blackboard: Blackboard):
+    def __init__(self, name: str, position, blackboard: py_trees.blackboard.Blackboard):
         super(PositionJoints, self).__init__(name)
         self.blackboard = blackboard
         self.target_position = position
-        self.robot = blackboard.read('robot')
+        self.robot = blackboard.get('robot')
         self.timestep = int(self.robot.getBasicTimeStep())
         self.joint_motors = {}
         self.joint_sensors = {}
@@ -150,12 +148,12 @@ class GripWithForce(py_trees.behaviour.Behaviour):
     the force threshold is reached on both fingers.
     """
 
-    def __init__(self, name: str, blackboard: Blackboard,
+    def __init__(self, name: str, blackboard: py_trees.blackboard.Blackboard,
                  force_threshold: float = GRIP_FORCE_THRESHOLD):
         super(GripWithForce, self).__init__(name)
         self.blackboard = blackboard
         self.force_threshold = force_threshold
-        self.robot = blackboard.read('robot')
+        self.robot = blackboard.get('robot')
         self.timestep = int(self.robot.getBasicTimeStep())
         self.left_motor = None
         self.right_motor = None
@@ -234,10 +232,10 @@ class ReleaseGripper(py_trees.behaviour.Behaviour):
     Opens fingers to maximum position.
     """
 
-    def __init__(self, name: str, blackboard: Blackboard):
+    def __init__(self, name: str, blackboard: py_trees.blackboard.Blackboard):
         super(ReleaseGripper, self).__init__(name)
         self.blackboard = blackboard
-        self.robot = blackboard.read('robot')
+        self.robot = blackboard.get('robot')
         self.timestep = int(self.robot.getBasicTimeStep())
         self.left_motor = None
         self.right_motor = None
