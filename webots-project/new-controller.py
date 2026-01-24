@@ -208,8 +208,8 @@ def camera_to_world_coordinates(camera_position):
     camera_height = robot_pos[2] + 0.891 + torso_height
     camera_forward_offset = 0.25
 
-    world_x = robot_pos[0] + forward_x * (camera_position[0] + camera_forward_offset) + right_x + camera_position[1]
-    world_y = robot_pos[1] + forward_y * (camera_position[0] + camera_forward_offset) + right_y + camera_position[1]
+    world_x = robot_pos[0] + forward_x * (camera_position[0] + camera_forward_offset) + right_x * camera_position[1]
+    world_y = robot_pos[1] + forward_y * (camera_position[0] + camera_forward_offset) + right_y * camera_position[1]
 
     reference_torso_height = 0.2
 
@@ -237,11 +237,17 @@ def calculate_approach_offsets(robot_pos, target_pos):
 
     # calc approach angle
     approach_angle = np.arctan2(dy, dx)
-    approach_vector_angle = approach_angle * np.pi
+    # this creates a vector pointing from the target to the robot
+    approach_vector_angle = approach_angle + np.pi  # reverse direction
 
     offset_magnitude = 0.045
     offset_x = offset_magnitude * np.cos(approach_vector_angle)
     offset_y = offset_magnitude * np.sin(approach_vector_angle)
+
+    print(f"Robot at ({robot_pos[0]:.2f}, {robot_pos[1]:.2f}), ")
+    print(f"Target at ({target_pos[0]:.2f}, {target_pos[1]:.2f})")
+    print(f"Approach angle ({np.degrees(approach_vector_angle):.2f})")
+    print(f"Calculated offsets: ({offset_x:.3f}, {offset_y:.3f})")
 
     return offset_x, offset_y
 
@@ -604,16 +610,15 @@ class GraspController(py_trees.behaviour.Behaviour):
 
         return common.Status.RUNNING
 
+    def terminate(self, new_status):
+        blackboard = py_trees.blackboard.Blackboard()
+        blackboard.set("grasp_success", new_status)
+        print(f"{self.name}: Grasp sequence terminated with status {new_status}.")
 
-def terminate(self, new_status):
-    blackboard = py_trees.blackboard.Blackboard()
-    blackboard.set("grasp_success", new_status)
-    print(f"{self.name}: Grasp sequence terminated with status {new_status}.")
-
-    if new_status == common.Status.FAILURE:
-        # Open gripper on failure
-        motors["gripper_left_finger_joint"].setPosition(0.045)
-        motors["gripper_right_finger_joint"].setPosition(0.045)
+        if new_status == common.Status.FAILURE:
+            # Open gripper on failure
+            motors["gripper_left_finger_joint"].setPosition(0.045)
+            motors["gripper_right_finger_joint"].setPosition(0.045)
 
 
 # Navigation Behvaviours
@@ -1189,7 +1194,7 @@ class BackupAfterGrasp(py_trees.behaviour.Behaviour):
                 rightMotor.setVelocity(0.0)
                 print(f"Backup complete, moved {distance_moved:.3f}m.")
                 return common.Status.SUCCESS
-            leftMotor.setVelocity(1.5)
+            leftMotor.setVelocity(-1.5)
             rightMotor.setVelocity(-1.5)
 
         return common.Status.RUNNING
@@ -1252,7 +1257,7 @@ def create_behaviour_tree():
             lift_position)
 
         backup = BackupAfterGrasp(f"Backup After Grasp {i + 1}")
-        basic_move_to_table = MoveToWaypoint(f"Move to Table Waypoint {i + 1}", table_waypoints[0])
+        basic_move_to_table = MoveToWaypoint(f"Move to Table Waypoint {i + 1}", table_waypoints)
         basic_move_to_home = MoveToWaypoint(f"Move to Home Waypoint {i + 1}", home_waypoint)
 
         move_to_table = create_movement_with_avoidance(basic_move_to_table)
