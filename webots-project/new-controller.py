@@ -209,12 +209,8 @@ def camera_to_world_coordinates(camera_position):
     camera_height = robot_pos[2] + 0.891 + torso_height
     camera_forward_offset = 0.25
 
-    world_x = robot_pos[0] + forward_x * (camera_position[0] + camera_forward_offset) + right_x * camera_position[
-        1] + forward_x * ((camera_position[0] + camera_forward_offset) * (np.cos(head_tilt) - 1.0) + camera_position[
-        2] * np.sin(head_tilt))
-    world_y = robot_pos[1] + forward_y * (camera_position[0] + camera_forward_offset) + right_y * camera_position[
-        1] + forward_y * ((camera_position[0] + camera_forward_offset) * (np.cos(head_tilt) - 1.0) + camera_position[
-        2] * np.sin(head_tilt))
+    world_x = robot_pos[0] + forward_x * (camera_position[0] + camera_forward_offset) - right_x * camera_position[2]
+    world_y = robot_pos[1] + forward_y * (camera_position[0] + camera_forward_offset) - right_y * camera_position[2]
 
     reference_torso_height = 0.2
 
@@ -222,9 +218,13 @@ def camera_to_world_coordinates(camera_position):
     z_correction = 0
     if torso_height > reference_torso_height:
         height_diff = torso_height - reference_torso_height
-        z_correction = -1.87 * height_diff
+        z_correction = -0.05
 
-    world_z = camera_height + camera_position[2] + z_correction
+    world_z = camera_height + camera_position[1] + z_correction
+
+    #world_y += 0.0613
+    #world_x -= 0.0035
+
 
     #print(f"Camera pos: {camera_position}, World pos: ({world_x:.2f}, {world_y:.2f}, {world_z:.2f})")
     #print(f"Robot pos: ({robot_pos[0]:.2f}, {robot_pos[1]:.2f}, {robot_pos[2]:.2f}), ")
@@ -250,7 +250,7 @@ def calculate_approach_offsets(robot_pos, target_pos):
     # this creates a vector pointing from the target to the robot
     approach_vector_angle = approach_angle + np.pi  # reverse direction
 
-    offset_magnitude = 0.045
+    offset_magnitude = 0.05
     offset_x = offset_magnitude * np.cos(approach_vector_angle)
     offset_y = offset_magnitude * np.sin(approach_vector_angle)
 
@@ -467,7 +467,7 @@ class EnhancedObjectRecogniser(py_trees.behaviour.Behaviour):
 
             # calculate distances and find closest
             for i, (pos, _) in enumerate(object_positions):
-                dist = sum((pos[j] - robot_pos[j]) ** 2 for j in range(3))
+                dist = (pos[0] - robot_pos[0]) ** 2 + (pos[1] - robot_pos[1]) ** 2 # ignore z coordinate for distance because we're getting some wonky errors there
                 object_positions[i] = (pos, object_positions[i][1], dist)
 
             # sort by distance
@@ -648,8 +648,8 @@ class MoveToObject(py_trees.behaviour.Behaviour):
         self.camera = camera
 
         # Distance thresholds
-        self.arm_adjustment_distance = 1.28
-        self.very_close_distance = 1.0
+        self.arm_adjustment_distance = 1.45 # prevents arm from clipping into counter
+        self.very_close_distance = 1.05
 
         self.state = "INITIAL"
         self.start_time = None
@@ -886,7 +886,7 @@ class MoveToWaypoint(py_trees.behaviour.Behaviour):
 
 # manipulation behaviours
 class MoveArmIK(py_trees.behaviour.Behaviour):
-    def __init__(self, name: str, offset_x=0.0, offset_y=0.0, tolerance=0.015, timeout=5.0):
+    def __init__(self, name: str, offset_x=0.0, offset_y=0.0, tolerance=0.005, timeout=5.0):
         super(MoveArmIK, self).__init__(name)
         self.offset_x = offset_x
         self.offset_y = offset_y
@@ -915,6 +915,7 @@ class MoveArmIK(py_trees.behaviour.Behaviour):
         self.movement_complete = False
         self.target_angles = None
         self.start_time = None
+        print(f"{self.name}: Initialising IK movement behaviour - using offset {self.offset_y}.")
 
     def update(self) -> common.Status:
         if self.movement_complete:
@@ -944,8 +945,8 @@ class MoveArmIK(py_trees.behaviour.Behaviour):
 
             self.target_angles = calculate_inverse_kinematics(
                 target_position,
-                offset_x=dy + self.offset_x,
-                offset_y=dx + self.offset_y
+                offset_x=dx + self.offset_x,
+                offset_y=dy + self.offset_y
             )
 
             if not self.target_angles:
@@ -1221,7 +1222,9 @@ def create_behaviour_tree():
 
     initialisation.add_children([move_to_safe_position])
 
-    y_offsets = [0.13, -0.65, -0.6]
+    # different offsets for the jar - based on experimentation (this shit is crazy!)
+    x_offsets = [0.08, 0.0, 0.2]
+    y_offsets = [0.12, 0.08, 0.08]
 
     root.add_children([initialisation])
 
@@ -1242,7 +1245,7 @@ def create_behaviour_tree():
 
         prepare_arm = MoveToPosition(f"Prepare Arm for approach {i + 1}", lift_position)
 
-        move_arm_behaviour = MoveArmIK(name=f"Move Arm {i + 1}", offset_x=0.0, offset_y=y_offsets[i])
+        move_arm_behaviour = MoveArmIK(name=f"Move Arm {i + 1}", offset_y=y_offsets[i], offset_x=x_offsets[i])
 
         base_move_to_object = MoveToObject(
             f"Move to Object {i + 1}",
@@ -1280,8 +1283,8 @@ def create_behaviour_tree():
 
         transport_and_place.add_children([
             py_trees.behaviours.Success(name=f"StartTransport_{i + 1}"),
-            lift_object,
             backup,
+            lift_object,
             move_to_table,
             place_object,
             open_gripper,
