@@ -266,7 +266,7 @@ def calculate_approach_offsets(robot_pos, target_pos):
     return offset_x, offset_y
 
 
-def calculate_inverse_kinematics(target_position, offset_x=0.0, offset_y=0.0):
+def calculate_inverse_kinematics(target_position, offset_x=0.0, offset_y=0.0, offset_z=0.0):
     """
     Calculate inverse kinematics for the robot arm to reach the target position.
     """
@@ -274,7 +274,7 @@ def calculate_inverse_kinematics(target_position, offset_x=0.0, offset_y=0.0):
     final_target = [
         target_position[0] + offset_x,
         target_position[1] + offset_y,
-        target_position[2]
+        target_position[2] + offset_z
     ]
 
     initial_position = [
@@ -890,10 +890,11 @@ class MoveToWaypoint(py_trees.behaviour.Behaviour):
 
 # manipulation behaviours
 class MoveArmIK(py_trees.behaviour.Behaviour):
-    def __init__(self, name: str, offset_x=0.0, offset_y=0.0, tolerance=0.005, timeout=5.0):
+    def __init__(self, name: str, offset_x=0.0, offset_y=0.0, offset_z=0.0, tolerance=0.005, timeout=5.0):
         super(MoveArmIK, self).__init__(name)
         self.offset_x = offset_x
         self.offset_y = offset_y
+        self.offset_z = offset_z
         self.tolerance = tolerance
         self.timeout = timeout
 
@@ -950,7 +951,8 @@ class MoveArmIK(py_trees.behaviour.Behaviour):
             self.target_angles = calculate_inverse_kinematics(
                 target_position,
                 offset_x=dx + self.offset_x,
-                offset_y=dy + self.offset_y
+                offset_y=dy + self.offset_y,
+                offset_z=self.offset_z
             )
 
             if not self.target_angles:
@@ -1227,8 +1229,9 @@ def create_behaviour_tree():
     initialisation.add_children([move_to_safe_position])
 
     # different offsets for the jar - based on experimentation (this shit is crazy!)
-    x_offsets = [0.08, 0.0, 0.2]
-    y_offsets = [0.12, 0.08, 0.08]
+    x_offsets = [0.08, 0.3, 0.3]
+    y_offsets = [0.12, -0.95, -0.75]
+    z_offsets = [0.0, -0.35, -0.35]
 
     root.add_children([initialisation])
 
@@ -1249,7 +1252,7 @@ def create_behaviour_tree():
 
         prepare_arm = MoveToPosition(f"Prepare Arm for approach {i + 1}", lift_position)
 
-        move_arm_behaviour = MoveArmIK(name=f"Move Arm {i + 1}", offset_y=y_offsets[i], offset_x=x_offsets[i])
+        move_arm_behaviour = MoveArmIK(name=f"Move Arm {i + 1}", offset_y=y_offsets[i], offset_x=x_offsets[i], offset_z=z_offsets[i])
 
         base_move_to_object = MoveToObject(
             f"Move to Object {i + 1}",
@@ -1363,6 +1366,8 @@ def main():
                 last_print_time = current_time
 
             if status in (common.Status.SUCCESS, common.Status.FAILURE):
+                leftMotor.setVelocity(0.0)
+                rightMotor.setVelocity(0.0)
                 print(f"Behaviour Tree completed with status: {status}")
                 break
         robot.step(timestep)
