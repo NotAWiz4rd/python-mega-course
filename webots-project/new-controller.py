@@ -205,11 +205,16 @@ def camera_to_world_coordinates(camera_position):
     if "head_2_joint" in sensors:
         head_tilt = sensors["head_2_joint"].getValue()
 
+    # precise camera height from URDF measurements
     camera_height = robot_pos[2] + 0.891 + torso_height
     camera_forward_offset = 0.25
 
-    world_x = robot_pos[0] + forward_x * (camera_position[0] + camera_forward_offset) + right_x * camera_position[1]
-    world_y = robot_pos[1] + forward_y * (camera_position[0] + camera_forward_offset) + right_y * camera_position[1]
+    world_x = robot_pos[0] + forward_x * (camera_position[0] + camera_forward_offset) + right_x * camera_position[
+        1] + forward_x * ((camera_position[0] + camera_forward_offset) * (np.cos(head_tilt) - 1.0) + camera_position[
+        2] * np.sin(head_tilt))
+    world_y = robot_pos[1] + forward_y * (camera_position[0] + camera_forward_offset) + right_y * camera_position[
+        1] + forward_y * ((camera_position[0] + camera_forward_offset) * (np.cos(head_tilt) - 1.0) + camera_position[
+        2] * np.sin(head_tilt))
 
     reference_torso_height = 0.2
 
@@ -220,6 +225,11 @@ def camera_to_world_coordinates(camera_position):
         z_correction = -1.87 * height_diff
 
     world_z = camera_height + camera_position[2] + z_correction
+
+    #print(f"Camera pos: {camera_position}, World pos: ({world_x:.2f}, {world_y:.2f}, {world_z:.2f})")
+    #print(f"Robot pos: ({robot_pos[0]:.2f}, {robot_pos[1]:.2f}, {robot_pos[2]:.2f}), ")
+    #print(f"Torso height: {torso_height:.2f}")
+    #print(f"Head tilt: {head_tilt:.2f}")
     return [world_x, world_y, world_z]
 
 
@@ -444,6 +454,7 @@ class EnhancedObjectRecogniser(py_trees.behaviour.Behaviour):
 
                 # convert to absolute world coords
                 world_position = camera_to_world_coordinates(camera_position)
+                print(f"Camera pos: {camera_position}, World pos: ({world_position[0]:.2f}, {world_position[1]:.2f}, {world_position[2]:.2f}), Model: {model_name}")
 
                 # filter out impossible positions
                 if world_position[2] < 0 or world_position[2] > 2.0:
