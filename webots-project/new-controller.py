@@ -302,7 +302,7 @@ def create_movement_with_avoidance(movement_behaviour):
         safety_distance=0.5
     )
 
-    movement_selector.add_children([obstacle_avoidance, movement_behaviour])
+    movement_selector.add_children([movement_behaviour])  # todo add lidar back once it works
     return movement_selector
 
 
@@ -882,7 +882,7 @@ class MoveArmIK(py_trees.behaviour.Behaviour):
         self.target_angles = None
         self.start_time = None
 
-        # simple pre-grasp postune
+        # simple pre-grasp posture
         self.pre_grasp_position = {
             "torso_lift_joint": 0.3,
             "arm_1_joint": 0.7,
@@ -924,6 +924,12 @@ class MoveArmIK(py_trees.behaviour.Behaviour):
             dx, dy = calculate_approach_offsets(
                 current_robot_pos,
                 target_position
+            )
+
+            self.target_angles = calculate_inverse_kinematics(
+                target_position,
+                offset_x=dy + self.offset_x,
+                offset_y=dx + self.offset_y
             )
 
             if not self.target_angles:
@@ -971,9 +977,11 @@ class MoveToPosition(py_trees.behaviour.Behaviour):
         self.movement_complete = False
         self.progress_time = None
         self.progress_threshold = 13.0  # success if no progress for 3 seconds
-        self.start_time = robot.getTime()
+        self.start_time = None
+        self.last_errors = {}
 
     def initialise(self):
+        self.start_time = robot.getTime()
         self.movement_complete = False
         self.progress_time = self.start_time
         self.last_errors = {}
@@ -1209,12 +1217,12 @@ def create_behaviour_tree():
         find_object = py_trees.composites.Selector(name="Find Object", memory=True)
         recognise = EnhancedObjectRecogniser(name=f"Recognise Object Before Scan {i + 1}", timeout=3.0)
 
-        comprehensive_scanner = ComprehensiveScanner("Comprehensivce Scanner", total_angles=8, angle_increment=45)
+        comprehensive_scanner = ComprehensiveScanner("Comprehensive Scanner", total_angles=8, angle_increment=45)
 
         find_object.add_children([recognise, comprehensive_scanner])
 
         # approach phase
-        approach_sequence = py_trees.composites.Sequence(name="Prepare Arm for Approach", memory=True)
+        approach_sequence = py_trees.composites.Sequence(name="Approach Sequence", memory=True)
 
         prepare_arm = MoveToPosition(f"Prepare Arm for approach {i + 1}", lift_position)
 
@@ -1222,7 +1230,7 @@ def create_behaviour_tree():
 
         base_move_to_object = MoveToObject(
             f"Move to Object {i + 1}",
-            None,
+            None,  # target position obtained from blackboard
             gps,
             compass,
             move_arm_behaviour,
