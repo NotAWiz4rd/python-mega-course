@@ -188,6 +188,7 @@ for joint, position in starting_position.items():
 
 
 def camera_to_world_coordinates(camera_position):
+    """Converts the position of an object in camera coordinates into said position in world coordinates."""
     robot_pos = gps.getValues()
     compass_value = compass.getValues()
     robot_angle = np.arctan2(compass_value[0], compass_value[1])
@@ -226,14 +227,10 @@ def camera_to_world_coordinates(camera_position):
 
     world_z = camera_height + camera_position[1] + z_correction
 
-    #world_y += 0.0613
-    #world_x -= 0.0035
-
-
-    #print(f"Camera pos: {camera_position}, World pos: ({world_x:.2f}, {world_y:.2f}, {world_z:.2f})")
-    #print(f"Robot pos: ({robot_pos[0]:.2f}, {robot_pos[1]:.2f}, {robot_pos[2]:.2f}), ")
-    #print(f"Torso height: {torso_height:.2f}")
-    #print(f"Head tilt: {head_tilt:.2f}")
+    print(f"Camera pos: {camera_position}, World pos: ({world_x:.2f}, {world_y:.2f}, {world_z:.2f})")
+    print(f"Robot pos: ({robot_pos[0]:.2f}, {robot_pos[1]:.2f}, {robot_pos[2]:.2f}), ")
+    print(f"Torso height: {torso_height:.2f}")
+    print(f"Head tilt: {head_tilt:.2f}")
     return [world_x, world_y, world_z]
 
 
@@ -565,7 +562,8 @@ class ComprehensiveScanner(py_trees.behaviour.Behaviour):
 
 
 class GraspController(py_trees.behaviour.Behaviour):
-
+    """Controls grasping beaviour using a simple state machine.
+    Includes verifying whether something has been grasped using force feedback."""
     def __init__(self, name: str, force_threshold: float = -12.0):
         super(GraspController, self).__init__(name)
         self.force_threshold = force_threshold
@@ -989,6 +987,7 @@ class MoveArmIK(py_trees.behaviour.Behaviour):
         return common.Status.RUNNING
 
 
+# Move joints into a certain target position
 class MoveToPosition(py_trees.behaviour.Behaviour):
     def __init__(self, name: str, joint_targets, tolerance=0.02, timeout=10.0):
         super(MoveToPosition, self).__init__(name)
@@ -1168,6 +1167,7 @@ class LiftAndVerify(py_trees.behaviour.Behaviour):
         return common.Status.RUNNING
 
 
+# Node for backing up after grasping, so that the arm doesn't bug into any shelves
 class BackupAfterGrasp(py_trees.behaviour.Behaviour):
     def __init__(self, name: str, backup_distance=0.2, duration=3.0):
         super(BackupAfterGrasp, self).__init__(name)
@@ -1352,22 +1352,18 @@ def main():
 
     behaviour_tree.tick()
 
-    last_print_time = robot.getTime()
-    print_interval = 10.0
     tick_interval = 1
 
     while robot.step(timestep) != -1:
         if robot.getBasicTimeStep() % tick_interval == 0:
             behaviour_tree.tick()
-            current_time = robot.getTime()
 
             status = behaviour_tree.root.status
-            if current_time - last_print_time >= print_interval:
-                last_print_time = current_time
 
             if status in (common.Status.SUCCESS, common.Status.FAILURE):
                 leftMotor.setVelocity(0.0)
                 rightMotor.setVelocity(0.0)
+                robot.step(timestep)  # step once more so the motor velocities actually get set
                 print(f"Behaviour Tree completed with status: {status}")
                 break
         robot.step(timestep)
