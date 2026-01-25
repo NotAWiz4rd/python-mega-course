@@ -245,8 +245,8 @@ class Navigation(py_trees.behaviour.Behaviour):
         self.marker.setSFVec3f([*self.waypoints[self.index], 0])
 
         # Proportional control gains
-        p_rho = 4    # Forward speed gain based on distance
-        p_alpha = 2  # Steering gain based on angle error
+        p_rho = 2    # Forward speed gain based on distance
+        p_alpha = 4  # Steering gain based on angle error
 
         # Base forward speed proportional to distance (capped)
         forward_speed = min(p_rho * rho, 6.28)

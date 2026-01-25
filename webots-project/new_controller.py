@@ -177,8 +177,8 @@ place_position = {
 }
 
 table_waypoints = [
-    (1.0, -0.9, 0.1),
-    (0.2, -1.5, 0.1)
+    (0.3, -1.5, 0.1),
+    (-0.2, -1.3, 0.1)
 ]
 home_waypoint = [(0.3, 0.0, 0.1)]
 
@@ -1277,21 +1277,23 @@ def create_behaviour_tree():
             f"Lift and Verify {i + 1}",
             lift_position)
 
-        backup = BackupAfterGrasp(f"Backup After Grasp {i + 1}")
+        backup = BackupAfterGrasp(f"Backup After Grasp {i + 1}", backup_distance=0.5)
         basic_move_to_table = MoveToWaypoint(f"Move to Table Waypoint {i + 1}", table_waypoints)
         basic_move_to_home = MoveToWaypoint(f"Move to Home Waypoint {i + 1}", home_waypoint)
 
         move_to_table = create_movement_with_avoidance(basic_move_to_table)
         move_to_home = create_movement_with_avoidance(basic_move_to_home)
 
-        get_target_table = GetTargetApproachPosition("Compute approach", blackboard, table_waypoints[-1],
-                                                     approach_distance=0.5)
+        get_target_table = GetTargetApproachPosition("Compute approach", blackboard, table_waypoints[0],
+                                                     approach_distance=0.0)
 
         # Plan and navigate to approach position
         plan_table_path = DynamicPlanning("Plan to table", 'approach_position')
         navigate_table = Navigation("Navigate to table", blackboard)
-        approach_target = DriveForward("Drive closer to table", blackboard, distance=0.35)
-        face_table = TurnToTarget("Face table", 'approach_position')
+        approach_target = DriveForward("Drive closer to table", blackboard, distance=0)
+        blackboard.set("table_waypoint", table_waypoints[1])
+        face_table = TurnToTarget("Face table", 'table_waypoint')
+        face_table_again = TurnToTarget("Face table", 'table_waypoint')
 
         place_object = MoveToPosition(f"Move to Object {i + 1}", place_position, timeout=8.0)
         open_gripper = OpenGripper(f"Open Gripper {i + 1}")
@@ -1301,7 +1303,7 @@ def create_behaviour_tree():
                                                     approach_distance=0.0)
         plan_home_path = DynamicPlanning("Plan to home", 'approach_position')
         navigate_home = Navigation("Navigate to home", blackboard)
-        backup_after_drop = BackupAfterGrasp(f"Backup after drop {i + 1}")
+        backup_after_drop = BackupAfterGrasp(f"Backup after drop {i + 1}", backup_distance=2.0)
 
         transport_and_place.add_children([
             py_trees.behaviours.Success(name=f"StartTransport_{i + 1}"),
@@ -1310,8 +1312,9 @@ def create_behaviour_tree():
             get_target_table,
             plan_table_path,
             navigate_table,
-            face_table,
             approach_target,
+            face_table,
+            #face_table_again,
             # move_to_table,
             place_object,
             open_gripper,
